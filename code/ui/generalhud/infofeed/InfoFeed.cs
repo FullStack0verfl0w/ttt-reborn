@@ -6,11 +6,11 @@ using TTTReborn.Roles;
 
 namespace TTTReborn.UI
 {
-    public partial class InfoFeed : TTTPanel
+    public partial class InfoFeed : Panel
     {
         public static InfoFeed Current;
 
-        public InfoFeed()
+        public InfoFeed() : base()
         {
             Current = this;
 
@@ -26,10 +26,19 @@ namespace TTTReborn.UI
             TTTPlayer leftPlayer = leftClient.Pawn as TTTPlayer;
 
             Label leftLabel = e.AddLabel(isLeftLocal ? "You" : leftClient.Name, "left");
-            leftLabel.SetClass("me", isLeftLocal);
             leftLabel.Style.FontColor = leftPlayer.Role is NoneRole ? Color.White : leftPlayer.Role.Color;
 
             e.AddLabel(method, "method");
+
+            return e;
+        }
+
+        public virtual Panel AddEntry(string method, Color? color = null)
+        {
+            InfoFeedEntry e = Current.AddChild<InfoFeedEntry>();
+
+            Label label = e.AddLabel(method, "method");
+            label.Style.FontColor = color ?? Color.White;
 
             return e;
         }
@@ -44,7 +53,6 @@ namespace TTTReborn.UI
             TTTPlayer leftPlayer = leftClient.Pawn as TTTPlayer;
 
             Label leftLabel = e.AddLabel(isLeftLocal ? "You" : leftClient.Name, "left");
-            leftLabel.SetClass("me", isLeftLocal);
             leftLabel.Style.FontColor = leftPlayer.Role is NoneRole ? Color.White : leftPlayer.Role.Color;
 
             e.AddLabel(method, "method");
@@ -52,7 +60,6 @@ namespace TTTReborn.UI
             TTTPlayer rightPlayer = rightClient.Pawn as TTTPlayer;
 
             Label rightLabel = e.AddLabel(isRightLocal ? "You" : rightClient.Name, "right");
-            rightLabel.SetClass("me", isRightLocal);
             rightLabel.Style.FontColor = rightPlayer.Role is NoneRole ? Color.White : rightPlayer.Role.Color;
 
             if (!string.IsNullOrEmpty(postfix))

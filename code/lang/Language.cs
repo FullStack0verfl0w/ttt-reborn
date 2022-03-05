@@ -2,8 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Text.Json;
 
-using Sandbox;
-
 namespace TTTReborn.Globalization
 {
     public struct LanguageData
@@ -50,50 +48,70 @@ namespace TTTReborn.Globalization
             }
         }
 
-        public object GetRawTranslation(string key)
-        {
-            if (_langDict.TryGetValue(key, out object translation))
-            {
-                return translation;
-            }
-
-            return null;
-        }
-
-        public string GetTranslation(string key)
-        {
-            object translation = GetRawTranslation(key);
-
-            if (translation is not null)
-            {
-                return translation.ToString();
-            }
-            else if (TTTLanguage.Languages.TryGetValue(TTTLanguage.FALLBACK_LANGUAGE, out Language fallbackLanguage) && fallbackLanguage != this)
-            {
-                return fallbackLanguage.GetTranslation(key);
-            }
-
-            return $"[ERROR: Translation of '{key}' not found]";
-        }
-
-        public string GetFormatedTranslation(string key, params object[] args)
-        {
-            string translation = GetTranslation(key);
-
-            if (args is null)
-            {
-                return translation;
-            }
-
-            return String.Format(translation, args);
-        }
-
         public void AddTranslationString(string key, string translation)
         {
             if (!_langDict.TryAdd(key, translation))
             {
                 Log.Warning($"Couldn't add translation string ('{key}') to '{Data.Name}'");
             }
+        }
+
+        public string GetFormattedTranslation(TranslationData translationData)
+        {
+            string translation = GetTranslation(translationData);
+
+            if (translationData.Args == null || translationData.Args.Length == 0)
+            {
+                return translation;
+            }
+
+            object[] data = new object[translationData.Args.Length];
+
+            for (int i = 0; i < translationData.Args.Length; i++)
+            {
+                if (translationData.Args[i] is TranslationData nestedTranslationData)
+                {
+                    data[i] = GetFormattedTranslation(nestedTranslationData);
+                }
+                else
+                {
+                    data[i] = translationData.Args[i];
+                }
+            }
+
+            return string.Format(translation, data);
+        }
+
+        private string GetTranslation(TranslationData translationData)
+        {
+            object translation = GetRawTranslation(translationData);
+
+            if (translation != null)
+            {
+                return translation.ToString();
+            }
+
+            if (Settings.SettingsManager.Instance.General.ReturnMissingKeys)
+            {
+                return $"[MISSING: Translation of '{translationData.Key}' not found]";
+            }
+
+            if (TTTLanguage.Languages.TryGetValue(TTTLanguage.FALLBACK_LANGUAGE, out Language fallbackLanguage) && fallbackLanguage != this)
+            {
+                return fallbackLanguage.GetTranslation(translationData);
+            }
+
+            return translationData.Key;
+        }
+
+        private object GetRawTranslation(TranslationData translationData)
+        {
+            if (translationData.Key.Length == 0)
+            {
+                return string.Empty;
+            }
+
+            return _langDict.GetValueOrDefault(translationData.Key);
         }
     }
 }

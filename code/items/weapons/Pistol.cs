@@ -2,12 +2,16 @@ using Sandbox;
 
 namespace TTTReborn.Items
 {
-    [Library("ttt_pistol")]
+    [Library("weapon_pistol")]
+    [Weapon(CarriableCategories.Pistol)]
+    [Spawnable]
+    [Buyable(Price = 100)]
+    [Precached("weapons/rust_pistol/v_rust_pistol.vmdl", "weapons/rust_pistol/rust_pistol.vmdl")]
     [Hammer.EditorModel("weapons/rust_pistol/rust_pistol.vmdl")]
-    partial class Pistol : TTTWeapon, IBuyableItem
+    public partial class Pistol : TTTWeapon
     {
         public override string ViewModelPath => "weapons/rust_pistol/v_rust_pistol.vmdl";
-        public override SlotType SlotType => SlotType.Secondary;
+        public override string ModelPath => "weapons/rust_pistol/rust_pistol.vmdl";
         public override bool UnlimitedAmmo => true;
         public override int ClipSize => 15;
         public override float PrimaryRate => 15.0f;
@@ -15,15 +19,6 @@ namespace TTTReborn.Items
         public override float ReloadTime => 2.3f;
         public override float DeployTime => 0.4f;
         public override int BaseDamage => 8;
-
-        public virtual int Price => 100;
-
-        public override void Spawn()
-        {
-            base.Spawn();
-
-            SetModel("weapons/rust_pistol/rust_pistol.vmdl");
-        }
 
         public override bool CanPrimaryAttack()
         {
@@ -42,9 +37,12 @@ namespace TTTReborn.Items
                 return;
             }
 
-            (Owner as AnimEntity).SetAnimBool("b_attack", true);
+            (Owner as AnimEntity).SetAnimParameter("b_attack", true);
 
-            ShootEffects();
+            if (IsClient)
+            {
+                ShootEffects();
+            }
 
             PlaySound("rust_pistol.shoot").SetPosition(Position).SetVolume(0.8f);
             ShootBullet(0.05f, 1.5f, BaseDamage, 3.0f);

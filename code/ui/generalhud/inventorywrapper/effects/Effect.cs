@@ -2,11 +2,12 @@ using Sandbox;
 using Sandbox.UI;
 using Sandbox.UI.Construct;
 
+using TTTReborn.Globalization;
 using TTTReborn.Items;
 
 namespace TTTReborn.UI
 {
-    public class Effect : TTTPanel
+    public class Effect : Panel
     {
         public IItem Item
         {
@@ -18,57 +19,75 @@ namespace TTTReborn.UI
             {
                 _item = value;
 
-                _nameLabel.Text = _item?.Name ?? "";
-                _effectImage.Texture = _item != null ? Texture.Load($"/ui/weapons/{_item.Name}.png") : null;
+                _nameLabel.UpdateTranslation(new TranslationData(_item?.LibraryName.ToUpper() ?? ""));
+                _effectImage.Texture = _item != null ? Texture.Load(FileSystem.Mounted, $"assets/icons/{_item.LibraryName}.png", false) : null;
 
                 if (_effectImage.Texture == null)
                 {
-                    _effectImage.Style.Display = DisplayMode.None;
-                    _nameLabel.Style.Display = DisplayMode.Flex;
-                }
-                else
-                {
-                    _effectImage.Style.Display = DisplayMode.Flex;
-                    _nameLabel.Style.Display = DisplayMode.None;
+                    _effectImage.Texture = Texture.Load(FileSystem.Mounted, $"assets/none.png");
                 }
 
-                if (_item is TTTCountdownPerk countdownPerk)
+                if (_item is TTTCountdownPerk)
                 {
                     ActivateCountdown();
                 }
                 else
                 {
-                    Countdown?.Delete();
-                    Countdown ??= null;
+                    _countdownLabel?.Delete();
                 }
             }
         }
 
         private IItem _item;
-        private readonly Label _nameLabel;
+        private readonly TranslationLabel _nameLabel;
+        private readonly Panel _effectIconPanel;
         private readonly Image _effectImage;
-        private Label Countdown;
+        private Label _countdownLabel;
 
-        public Effect(Panel parent, IItem effect)
+        public Effect(Panel parent, IItem effect) : base(parent)
         {
             Parent = parent;
 
-            _nameLabel = Add.Label("", "textlabel");
-            _effectImage = Add.Image("", "effectimage");
+            AddClass("text-shadow");
+
+            _effectIconPanel = new Panel(this);
+            _effectIconPanel.AddClass("effect-icon-panel");
+
+            _effectImage = _effectIconPanel.Add.Image();
+            _effectImage.AddClass("effect-image");
+
+            _nameLabel = Add.TranslationLabel(new TranslationData());
+            _nameLabel.AddClass("name-label");
 
             Item = effect;
         }
 
         private void ActivateCountdown()
         {
-            Countdown = Add.Label("", "countdown");
+            _countdownLabel = _effectIconPanel.Add.Label();
+            _countdownLabel.AddClass("countdown");
+            _countdownLabel.AddClass("centered");
+            _countdownLabel.AddClass("text-shadow");
         }
 
         public override void Tick()
         {
-            if (Countdown != null && Item is TTTCountdownPerk countdownPerk)
+            base.Tick();
+
+            if (_countdownLabel != null && Item is TTTCountdownPerk countdownPerk)
             {
-                Countdown.Text = $"{(countdownPerk.Countdown - countdownPerk.LastCountdown):n1}";
+                int currentCountdown = (countdownPerk.Countdown - countdownPerk.LastCountdown).CeilToInt();
+
+                if (currentCountdown == countdownPerk.Countdown.CeilToInt() || currentCountdown == 0)
+                {
+                    _effectImage.SetClass("cooldown", false);
+                    _countdownLabel.Text = "";
+                }
+                else
+                {
+                    _effectImage.SetClass("cooldown", true);
+                    _countdownLabel.Text = $"{currentCountdown:n0}";
+                }
             }
         }
     }

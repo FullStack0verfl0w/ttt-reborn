@@ -2,11 +2,11 @@ using Sandbox;
 
 namespace TTTReborn.Items
 {
-    [Library("ttt_ammo_smg")]
+    [Library("ammo_smg")]
+    [Spawnable]
     [Hammer.EditorModel("models/ammo/ammo_smg.vmdl")]
-    partial class SMGAmmo : TTTAmmo
+    public partial class SMGAmmo : TTTAmmo
     {
-        public override string Name => "smg";
         public override int Amount => 30;
         public override int Max => 90;
         public override string ModelPath => "models/ammo/ammo_smg.vmdl";

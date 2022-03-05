@@ -1,17 +1,33 @@
+using System;
+
 namespace TTTReborn.Items
 {
-    public enum SlotType
+    public enum CarriableCategories
     {
-        Primary = 1,
-        Secondary,
         Melee,
-        Equipment,
+        Pistol,
+        SMG,
+        Shotgun,
+        Sniper,
+        OffensiveEquipment,
+        UtilityEquipment,
         Grenade
+    }
+
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
+    public class CarriableAttribute : ItemAttribute
+    {
+        public CarriableCategories Category;
+
+        public CarriableAttribute(CarriableCategories category) : base()
+        {
+            Category = category;
+        }
     }
 
     public interface ICarriableItem : IItem
     {
-        SlotType SlotType { get; }
+        CarriableCategories Category { get; }
 
         bool CanDrop();
     }

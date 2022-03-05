@@ -18,9 +18,9 @@ namespace TTTReborn.UI
         public Vector2? TransformRatio;
     }
 
-    public partial class RichPanel : TTTPanel
+    public partial class RichPanel : Panel
     {
-        public bool IsDraggable { get; set; } = false;
+        public bool IsDraggable = false;
 
         public enum DragAnchor
         {
@@ -38,10 +38,7 @@ namespace TTTReborn.UI
 
         public bool CanStartDragging
         {
-            get
-            {
-                return _canStartDragging && IsDraggable;
-            }
+            get => _canStartDragging && IsDraggable;
             private set
             {
                 _canStartDragging = value;
@@ -53,10 +50,7 @@ namespace TTTReborn.UI
 
         public DragAnchor? CurrentDragAnchor
         {
-            get
-            {
-                return _currentDragAnchor;
-            }
+            get => _currentDragAnchor;
             private set
             {
                 _currentDragAnchor = value;
@@ -68,10 +62,7 @@ namespace TTTReborn.UI
 
         public DragAnchor? CurrentHorizontalDragAnchor
         {
-            get
-            {
-                return _currentHorizontalDragAnchor;
-            }
+            get => _currentHorizontalDragAnchor;
             private set
             {
                 _currentHorizontalDragAnchor = value;
@@ -101,10 +92,7 @@ namespace TTTReborn.UI
 
         public DragAnchor? CurrentVerticalDragAnchor
         {
-            get
-            {
-                return _currentVerticalDragAnchor;
-            }
+            get => _currentVerticalDragAnchor;
             private set
             {
                 _currentVerticalDragAnchor = value;
@@ -190,7 +178,7 @@ namespace TTTReborn.UI
                 return;
             }
 
-            Vector2 delta = new Vector2(
+            Vector2 delta = new(
                 Mouse.Position.x - _draggingMouseStartPosition.x,
                 Mouse.Position.y - _draggingMouseStartPosition.y
             );
@@ -293,11 +281,12 @@ namespace TTTReborn.UI
             Style.Height = Length.Pixels((float) Math.Ceiling(height));
             Style.Left = Length.Pixels((float) Math.Ceiling(left));
             Style.Top = Length.Pixels((float) Math.Ceiling(top));
-            Style.Dirty();
         }
 
         public override void Tick()
         {
+            base.Tick();
+
             if (!IsVisible || ComputedStyle == null || IsDragging || !IsDraggable)
             {
                 return;

@@ -2,34 +2,61 @@ using System;
 
 using Sandbox;
 
+using TTTReborn.Events;
 using TTTReborn.Globalization;
-using TTTReborn.Globals;
+using TTTReborn.Map;
 using TTTReborn.Player;
 using TTTReborn.Rounds;
-using TTTReborn.UI;
+using TTTReborn.Settings;
+using TTTReborn.VisualProgramming;
 
 namespace TTTReborn.Gamemode
 {
+    [Hammer.Skip]
     [Library("tttreborn", Title = "Trouble in Terry's Town")]
-    partial class Game : Sandbox.Game
+    public partial class Game : Sandbox.Game
     {
         public static Game Instance { get; private set; }
 
-        [Net]
+        [Net, Change]
         public BaseRound Round { get; private set; } = new Rounds.WaitingRound();
 
-        public KarmaSystem Karma { get; private set; } = new KarmaSystem();
+        [Net]
+        public MapSelectionHandler MapSelection { get; set; } = new();
+
+        public KarmaSystem Karma { get; private set; } = new();
+
+        public MapHandler MapHandler { get; private set; }
+
+        // [ConVar.Replicated("ttt_debug")]
+        public bool Debug { get; set; } = true;
 
         public Game()
         {
             Instance = this;
 
-            TTTLanguage.LoadLanguages();
+            if (IsServer)
+            {
+                PrecacheFiles();
+            }
+
+            TTTLanguage.Load();
+            SettingsManager.Load();
+            _ = MapSelection.Load();
 
             if (IsServer)
             {
-                new Hud();
+                ShopManager.Load();
             }
+
+            NodeStack.Load();
+        }
+
+        public override void Shutdown()
+        {
+            SettingsManager.Unload();
+
+            base.Shutdown();
         }
 
         /// <summary>
@@ -40,14 +67,7 @@ namespace TTTReborn.Gamemode
         {
             Assert.NotNull(round);
 
-            if (Utils.HasMinimumPlayers())
-            {
-                ForceRoundChange(round);
-            }
-            else
-            {
-                ForceRoundChange(new WaitingRound());
-            }
+            ForceRoundChange(Utils.HasMinimumPlayers() ? round : new WaitingRound());
         }
 
         /// <summary>
@@ -56,8 +76,15 @@ namespace TTTReborn.Gamemode
         /// <param name="round"> The round to change to.</param>
         public void ForceRoundChange(BaseRound round)
         {
+            Host.AssertServer();
+
             Round.Finish();
+
+            BaseRound oldRound = Round;
             Round = round;
+
+            Event.Run(TTTEvent.Game.ROUND_CHANGE, oldRound, round);
+
             Round.Start();
         }
 
@@ -68,7 +95,10 @@ namespace TTTReborn.Gamemode
 
         public override void DoPlayerSuicide(Client client)
         {
-            base.DoPlayerSuicide(client);
+            if (client.Pawn is TTTPlayer player && player.LifeState == LifeState.Alive)
+            {
+                base.DoPlayerSuicide(client);
+            }
         }
 
         public override void OnKilled(Entity entity)
@@ -95,9 +125,15 @@ namespace TTTReborn.Gamemode
             }
             */
 
-            TTTPlayer player = new TTTPlayer();
+            Round.OnPlayerJoin(client.Pawn as TTTPlayer);
+
+            Event.Run(TTTEvent.Player.CONNECTED, client);
+
+            RPCs.ClientOnPlayerConnected(client);
+
+            TTTPlayer player = new();
             client.Pawn = player;
-            player.InitialRespawn();
+            player.InitialSpawn();
 
             base.ClientJoined(client);
         }
@@ -108,6 +144,10 @@ namespace TTTReborn.Gamemode
 
             Round.OnPlayerLeave(client.Pawn as TTTPlayer);
 
+            Event.Run(TTTEvent.Player.DISCONNECTED, client.PlayerId, reason);
+
+            RPCs.ClientOnPlayerDisconnect(client.PlayerId, reason);
+
             base.ClientDisconnect(client, reason);
         }
 
@@ -115,17 +155,14 @@ namespace TTTReborn.Gamemode
         {
             Host.AssertServer();
 
-            if (source.Pawn is not TTTPlayer sourcePlayer || dest.Pawn is not TTTPlayer destPlayer)
+            if (source.Name.Equals(dest.Name) || source.Pawn is not TTTPlayer sourcePlayer || dest.Pawn is not TTTPlayer destPlayer)
             {
                 return false;
             }
 
-            if (Round is InProgressRound && sourcePlayer.LifeState == LifeState.Dead)
+            if (Round is InProgressRound && sourcePlayer.LifeState == LifeState.Dead && destPlayer.LifeState == LifeState.Alive)
             {
-                if (destPlayer.LifeState == LifeState.Alive)
-                {
-                    return false;
-                }
+                return false;
             }
 
             if (sourcePlayer.IsTeamVoiceChatEnabled && destPlayer.Team != sourcePlayer.Team)
@@ -140,13 +177,13 @@ namespace TTTReborn.Gamemode
         /// Someone is speaking via voice chat. This might be someone in your game,
         /// or in your party, or in your lobby.
         /// </summary>
-        public override void OnVoicePlayed(ulong steamId, float level)
+        public override void OnVoicePlayed(long playerId, float level)
         {
             Client client = null;
 
             foreach (Client loopClient in Client.All)
             {
-                if (loopClient.SteamId == steamId)
+                if (loopClient.PlayerId == playerId)
                 {
                     client = loopClient;
 
@@ -164,7 +201,7 @@ namespace TTTReborn.Gamemode
                 player.IsSpeaking = true;
             }
 
-            UI.VoiceList.Current?.OnVoicePlayed(client, level);
+            UI.VoiceChatDisplay.Instance?.OnVoicePlayed(client, level);
         }
 
         public override void PostLevelLoaded()
@@ -172,6 +209,8 @@ namespace TTTReborn.Gamemode
             StartGameTimer();
 
             base.PostLevelLoaded();
+
+            MapHandler = new();
         }
 
         private async void StartGameTimer()
@@ -193,7 +232,7 @@ namespace TTTReborn.Gamemode
                         return;
                     }
 
-                    Log.Error($"{e.Message}: {e.StackTrace}");
+                    throw;
                 }
             }
         }
@@ -201,6 +240,11 @@ namespace TTTReborn.Gamemode
         private void OnGameSecond()
         {
             Round?.OnSecond();
+        }
+
+        public static void OnRoundChanged(BaseRound oldRound, BaseRound newRound)
+        {
+            Event.Run(TTTEvent.Game.ROUND_CHANGE, oldRound, newRound);
         }
     }
 }

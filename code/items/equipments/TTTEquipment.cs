@@ -1,30 +1,39 @@
+using System;
+
 using Sandbox;
 
 using TTTReborn.Player;
 
 namespace TTTReborn.Items
 {
-    // [AttributeUsage(AttributeTargets.Class, Inherited = false)]
-    // public class EquipmentAttribute : LibraryAttribute
-    // {
-    //     public EquipmentAttribute(string name) : base(name)
-    //     {
+    [AttributeUsage(AttributeTargets.Class, AllowMultiple = false, Inherited = true)]
+    public class EquipmentAttribute : CarriableAttribute
+    {
+        public EquipmentAttribute(CarriableCategories category = CarriableCategories.UtilityEquipment) : base(category)
+        {
 
-    //     }
-    // }
+        }
+    }
 
-    [Library("ttt_equipment")]
+    [Hammer.Skip]
     public abstract class TTTEquipment : BaseCarriable, ICarriableItem
     {
-        public virtual SlotType SlotType => SlotType.Equipment;
-
-        public string Name { get; }
+        public string LibraryName { get; }
+        public CarriableCategories Category { get; }
 
         protected TTTEquipment()
         {
-            LibraryAttribute attribute = Library.GetAttribute(GetType());
+            LibraryName = Utils.GetLibraryName(GetType());
 
-            Name = attribute.Name;
+            foreach (object obj in GetType().GetCustomAttributes(false))
+            {
+                if (obj is EquipmentAttribute equipmentAttribute)
+                {
+                    Category = equipmentAttribute.Category;
+                }
+            }
+
+            EnableShadowInFirstPerson = false;
         }
 
         public void Equip(TTTPlayer player)

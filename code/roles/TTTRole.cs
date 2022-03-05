@@ -1,8 +1,9 @@
 using System;
+using System.Collections.Generic;
 
 using Sandbox;
 
-using TTTReborn.Globals;
+using TTTReborn.Events;
 using TTTReborn.Player;
 using TTTReborn.Teams;
 
@@ -11,38 +12,56 @@ namespace TTTReborn.Roles
     [AttributeUsage(AttributeTargets.Class, Inherited = false)]
     public class RoleAttribute : LibraryAttribute
     {
-        public RoleAttribute(string name) : base(name)
+        public RoleAttribute(string name) : base("role_" + name)
         {
 
         }
     }
 
-    [RoleAttribute("Base")]
     public abstract class TTTRole
     {
         public readonly string Name;
 
         public virtual Color Color => Color.Black;
 
-        public abstract Type DefaultTeamType { get; }
+        public virtual TTTTeam DefaultTeam { get; } = TeamFunctions.GetTeam(typeof(NoneTeam));
 
-        public virtual int DefaultCredits => 0;
+        public virtual int DefaultCredits => 50;
+
+        public static Dictionary<string, Shop> ShopDict { get; internal set; } = new();
+
+        public virtual bool IsSelectable => true;
+
+        public Shop Shop
+        {
+            get
+            {
+                ShopDict.TryGetValue(Name, out Shop shop);
+
+                return shop;
+            }
+            internal set
+            {
+                ShopDict[Name] = value;
+            }
+        }
 
         public TTTRole()
         {
-            Name = Utils.GetTypeName(GetType());
-
-            if (TeamFunctions.GetTeamByType(DefaultTeamType) == null)
-            {
-                Utils.GetObjectByType<TTTTeam>(DefaultTeamType);
-            }
+            Name = Utils.GetLibraryName(GetType());
         }
 
         public virtual void OnSelect(TTTPlayer player)
         {
             player.Credits = Math.Max(DefaultCredits, player.Credits);
 
-            Event.Run("tttreborn.player.role.onselect", player);
+            if (Host.IsServer)
+            {
+                player.Shop = Shop;
+                player.ServerUpdateShop();
+            }
+
+            Event.Run(TTTEvent.Player.Role.SELECT, player);
         }
 
         public virtual void OnDeselect(TTTPlayer player)
@@ -50,11 +69,25 @@ namespace TTTReborn.Roles
 
         }
 
-        public virtual bool CanBuy() => false;
+        // serverside function
+        public virtual void InitShop()
+        {
+            Shop.Load(this);
+        }
+
+        public virtual void CreateDefaultShop()
+        {
+
+        }
+
+        public virtual void UpdateDefaultShop(List<Type> newItemsList)
+        {
+
+        }
 
         public string GetRoleTranslationKey(string key)
         {
-            return $"{key}_{Name.ToUpper()}";
+            return $"{Name.ToUpper()}_{key}";
         }
     }
 }

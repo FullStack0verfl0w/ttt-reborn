@@ -3,26 +3,32 @@ using System;
 using Sandbox;
 using Sandbox.UI;
 
+using TTTReborn.Events;
 using TTTReborn.Player;
 
 namespace TTTReborn.UI
 {
-    public partial class DamageIndicator : TTTPanel
+    public partial class DamageIndicator : Panel
     {
-        private float _maxDamageIndicatorDuration = 10f;
+        public static DamageIndicator Instance;
+
+        private const float MAX_DAMAGE_INDICATOR_DURATION = 5f;
         private float _currentRemainingDamageIndicatorDuration = 0f;
         private TimeSince _timeSinceLastDamage = 0f;
         private float _lastDamage = 0f;
-        private float _additionalDamageIndicatorDuration = 0f;
 
-        public DamageIndicator()
+        public DamageIndicator() : base()
         {
+            Instance = this;
+
             StyleSheet.Load("/ui/alivehud/damageindicator/DamageIndicator.scss");
 
-            Style.SetBackgroundImage(Texture.Load("/ui/damageindicator/default.png"));
+            Style.SetBackgroundImage(Texture.Load(FileSystem.Mounted, "assets/damageindicator/default.png"));
+
+            Style.ZIndex = -1;
         }
 
-        [Event("tttreborn.player.takedamage")]
+        [Event(TTTEvent.Player.TAKE_DAMAGE)]
         private void OnTakeDamage(TTTPlayer player, float damage)
         {
             if (Host.IsServer)
@@ -32,32 +38,46 @@ namespace TTTReborn.UI
 
             _lastDamage = damage;
             _timeSinceLastDamage = 0f;
-            _additionalDamageIndicatorDuration += _currentRemainingDamageIndicatorDuration;
-            _currentRemainingDamageIndicatorDuration = 0f;
         }
 
-        public override void Tick()
+        [Event(TTTEvent.Player.SPAWNED)]
+        private void OnPlayerSpawned(TTTPlayer player)
         {
-            if (Local.Pawn is not TTTPlayer player)
+            if (Host.IsServer || player != Local.Client.Pawn)
             {
                 return;
             }
 
-            float remainingDamageIndicatorTime = _maxDamageIndicatorDuration * (_lastDamage / player.MaxHealth);
+            // Reset damage indicator on spawn.
+            _lastDamage = 0f;
+        }
 
-            if (_additionalDamageIndicatorDuration != 0f)
+        public override void Tick()
+        {
+            base.Tick();
+
+            if (Local.Pawn is not TTTPlayer player)
             {
-                remainingDamageIndicatorTime += _additionalDamageIndicatorDuration;
-                _additionalDamageIndicatorDuration = 0f;
+                Style.Opacity = 0;
+                return;
             }
+
+            float remainingDamageIndicatorTime = _lastDamage / player.MaxHealth * 20;
+
+            if (_currentRemainingDamageIndicatorDuration != 0f)
+            {
+                remainingDamageIndicatorTime += _currentRemainingDamageIndicatorDuration;
+                _currentRemainingDamageIndicatorDuration = 0f;
+            }
+
+            remainingDamageIndicatorTime = Math.Min(remainingDamageIndicatorTime, MAX_DAMAGE_INDICATOR_DURATION);
 
             if (_lastDamage > 0f && _timeSinceLastDamage < remainingDamageIndicatorTime)
             {
                 _currentRemainingDamageIndicatorDuration = remainingDamageIndicatorTime - _timeSinceLastDamage;
 
                 Style.Display = DisplayMode.Flex;
-                Style.Opacity = Math.Clamp((_currentRemainingDamageIndicatorDuration / remainingDamageIndicatorTime) * (remainingDamageIndicatorTime / _maxDamageIndicatorDuration), 0f, 1f);
-                Style.Dirty();
+                Style.Opacity = Math.Clamp((_currentRemainingDamageIndicatorDuration / remainingDamageIndicatorTime) * (remainingDamageIndicatorTime / MAX_DAMAGE_INDICATOR_DURATION), 0f, 0.3f);
             }
             else
             {

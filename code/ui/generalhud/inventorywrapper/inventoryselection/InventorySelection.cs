@@ -6,25 +6,42 @@ using Sandbox;
 using Sandbox.UI;
 using Sandbox.UI.Construct;
 
+using TTTReborn.Events;
+using TTTReborn.Globalization;
 using TTTReborn.Items;
 using TTTReborn.Player;
 
 namespace TTTReborn.UI
 {
-    public class InventorySelection : TTTPanel
+    public class InventorySelection : Panel
     {
-        public InventorySelection()
+        private readonly InputButton[] _slotInputButtons = new[]
+        {
+            InputButton.Slot0,
+            InputButton.Slot1,
+            InputButton.Slot2,
+            InputButton.Slot3,
+            InputButton.Slot4,
+            InputButton.Slot5,
+            InputButton.Slot6,
+            InputButton.Slot7,
+            InputButton.Slot8,
+            InputButton.Slot9
+        };
+
+        public InventorySelection() : base()
         {
             StyleSheet.Load("/ui/generalhud/inventorywrapper/inventoryselection/InventorySelection.scss");
+
+            AddClass("opacity-heavy");
+            AddClass("text-shadow");
 
             if (Local.Pawn is not TTTPlayer player)
             {
                 return;
             }
 
-            Inventory inventory = player.CurrentPlayer.Inventory as Inventory;
-
-            foreach (Entity entity in inventory.List)
+            foreach (Entity entity in player.CurrentPlayer.Inventory.List)
             {
                 if (entity is ICarriableItem carriableItem)
                 {
@@ -42,7 +59,50 @@ namespace TTTReborn.UI
                 return;
             }
 
-            Inventory inventory = player.CurrentPlayer.Inventory as Inventory;
+            // Due to S&Box RPC ent syncing bugs, we have to run some checks and fixes
+            bool invalidList = false;
+
+            foreach (Entity entity in player.CurrentPlayer.Inventory.List)
+            {
+                if (entity is not ICarriableItem carriableItem)
+                {
+                    continue;
+                }
+
+                string entName = carriableItem.LibraryName;
+                bool found = false;
+
+                foreach (Panel panel in Children)
+                {
+                    if (panel is InventorySlot inventorySlot && inventorySlot.Carriable.LibraryName.Equals(entName))
+                    {
+                        found = true;
+
+                        break;
+                    }
+                }
+
+                if (!found)
+                {
+                    invalidList = true;
+
+                    break;
+                }
+            }
+
+            if (invalidList)
+            {
+                OnCarriableItemClear();
+
+                foreach (Entity entity in player.Inventory.List)
+                {
+                    if (entity is ICarriableItem carriableItem)
+                    {
+                        OnCarriableItemPickup(carriableItem);
+                    }
+                }
+            }
+
             ICarriableItem activeItem = player.CurrentPlayer.ActiveChild as ICarriableItem;
 
             bool invalidSlot = false;
@@ -58,11 +118,18 @@ namespace TTTReborn.UI
                         break;
                     }
 
-                    slot.SetClass("active", slot.Carriable.Name == activeItem?.Name);
+                    slot.SetClass("rounded-top", child == Children.First());
+                    slot.SetClass("rounded-bottom", child == Children.Last());
 
-                    if (slot.Carriable is TTTWeapon weapon && weapon.SlotType != SlotType.Melee)
+                    slot.SlotLabel.SetClass("rounded-top-left", child == Children.First());
+                    slot.SlotLabel.SetClass("rounded-bottom-left", child == Children.Last());
+
+                    slot.SetClass("active", slot.Carriable.LibraryName == activeItem?.LibraryName);
+                    slot.SetClass("opacity-heavy", slot.Carriable.LibraryName == activeItem?.LibraryName);
+
+                    if (slot.Carriable is TTTWeapon weapon && weapon.Category != CarriableCategories.Melee)
                     {
-                        slot.UpdateAmmo(FormatAmmo(weapon, inventory));
+                        slot.UpdateAmmo(FormatAmmo(weapon, player.CurrentPlayer.Inventory));
                     }
                 }
             }
@@ -73,13 +140,13 @@ namespace TTTReborn.UI
             }
         }
 
-        [Event("tttreborn.player.inventory.clear")]
+        [Event(TTTEvent.Player.Inventory.CLEAR)]
         private void OnCarriableItemClear()
         {
             DeleteChildren(true);
         }
 
-        [Event("tttreborn.player.carriableitem.pickup")]
+        [Event(TTTEvent.Player.Inventory.PICK_UP)]
         private void OnCarriableItemPickup(ICarriableItem carriable)
         {
             if (carriable == null)
@@ -93,39 +160,38 @@ namespace TTTReborn.UI
                 InventorySlot s1 = p1 as InventorySlot;
                 InventorySlot s2 = p2 as InventorySlot;
 
-                int result = s1.Carriable.SlotType.CompareTo(s2.Carriable.SlotType);
+                int result = s1.Carriable.Category.CompareTo(s2.Carriable.Category);
                 return result != 0
                     ? result
-                    : String.Compare(s1.Carriable.Name, s2.Carriable.Name, StringComparison.Ordinal);
+                    : string.Compare(s1.Carriable.LibraryName, s2.Carriable.LibraryName, StringComparison.Ordinal);
             });
 
-            IsShowing = Children.Any();
+            this.Enabled(Children.Any());
         }
 
-        [Event("tttreborn.player.carriableitem.drop")]
+        [Event(TTTEvent.Player.Inventory.DROP)]
         private void OnCarriableItemDrop(ICarriableItem carriable)
         {
             foreach (Panel child in Children)
             {
                 if (child is InventorySlot slot)
                 {
-                    if (slot.Carriable.Name == carriable.Name)
+                    if (slot.Carriable.LibraryName == carriable.LibraryName)
                     {
                         child.Delete();
                     }
                 }
             }
 
-            IsShowing = Children.Any();
+            this.Enabled(Children.Any());
         }
 
-        [Event("tttreborn.player.spectating.change")]
+        [Event(TTTEvent.Player.Spectating.CHANGE)]
         private void OnSpectatingChange(TTTPlayer player)
         {
             OnCarriableItemClear();
 
-            Inventory inventory = player.CurrentPlayer.Inventory as Inventory;
-            foreach (Entity entity in inventory.List)
+            foreach (Entity entity in player.Inventory.List)
             {
                 if (entity is ICarriableItem carriableItem)
                 {
@@ -152,11 +218,10 @@ namespace TTTReborn.UI
             }
 
             List<Panel> childrenList = Children.ToList();
-
-            ICarriableItem activeCarriable = Local.Pawn.ActiveChild as ICarriableItem;
+            ICarriableItem activeCarriable = player.ActiveChild as ICarriableItem;
 
             int keyboardIndexPressed = GetKeyboardNumberPressed(input);
-            if (keyboardIndexPressed != 0)
+            if (keyboardIndexPressed != -1)
             {
                 List<ICarriableItem> weaponsOfSlotTypeSelected = new();
                 int activeCarriableOfSlotTypeIndex = -1;
@@ -165,14 +230,14 @@ namespace TTTReborn.UI
                 {
                     if (childrenList[i] is InventorySlot slot)
                     {
-                        if ((int) slot.Carriable.SlotType == keyboardIndexPressed)
+                        if (Inventory.GetSlotByCategory(slot.Carriable.Category) == keyboardIndexPressed)
                         {
                             // Using the keyboard index the user pressed, find all carriables that
                             // have the same slot type as the index.
                             // Ex. "3" pressed, find all carriables with slot type "3".
                             weaponsOfSlotTypeSelected.Add(slot.Carriable);
 
-                            if (slot.Carriable.Name == activeCarriable?.Name)
+                            if (slot.Carriable.LibraryName == activeCarriable?.LibraryName)
                             {
                                 // If the current active carriable has the same slot type as
                                 // the keyboard index the user pressed
@@ -196,11 +261,11 @@ namespace TTTReborn.UI
                 }
             }
 
-            int mouseWheelIndex = Input.MouseWheel;
+            int mouseWheelIndex = input.MouseWheel;
             if (mouseWheelIndex != 0)
             {
                 int activeCarriableIndex = childrenList.FindIndex((p) =>
-                    p is InventorySlot slot && slot.Carriable.Name == activeCarriable?.Name);
+                    p is InventorySlot slot && slot.Carriable.LibraryName == activeCarriable?.LibraryName);
 
                 int newSelectedIndex = NormalizeSlotIndex(-mouseWheelIndex + activeCarriableIndex, childrenList.Count - 1);
                 input.ActiveChild = (childrenList[newSelectedIndex] as InventorySlot)?.Carriable as Entity;
@@ -208,55 +273,76 @@ namespace TTTReborn.UI
         }
 
         // Keyboard selection can only increment the index by 1.
-        private int GetNextWeaponIndex(int index, int count)
+        private static int GetNextWeaponIndex(int index, int count)
         {
             return NormalizeSlotIndex(index + 1, count - 1);
         }
 
-        private int NormalizeSlotIndex(int index, int maxIndex)
+        private static int NormalizeSlotIndex(int index, int maxIndex)
         {
             return index > maxIndex ? 0 : index < 0 ? maxIndex : index;
         }
 
         private int GetKeyboardNumberPressed(InputBuilder input)
         {
-            if (input.Pressed(InputButton.Slot1)) return 1;
-            if (input.Pressed(InputButton.Slot2)) return 2;
-            if (input.Pressed(InputButton.Slot3)) return 3;
-            if (input.Pressed(InputButton.Slot4)) return 4;
-            if (input.Pressed(InputButton.Slot5)) return 5;
+            for (int i = 0; i < _slotInputButtons.Length; i++)
+            {
+                if (input.Pressed(_slotInputButtons[i]))
+                {
+                    return i;
+                }
+            }
 
-            return 0;
+            return -1;
         }
 
         private static string FormatAmmo(TTTWeapon weapon, Inventory inventory)
         {
             if (weapon.UnlimitedAmmo)
             {
-                return $"{weapon.AmmoClip}";
+                return $"{weapon.AmmoClip} + ∞";
             }
 
-            return $"{weapon.AmmoClip} + {(inventory.Ammo.Count(weapon.AmmoType))}";
+            return $"{weapon.AmmoClip} + {inventory.Ammo.Count(weapon.AmmoName)}";
         }
 
-        private class InventorySlot : TTTPanel
+        private class InventorySlot : Panel
         {
-            public ICarriableItem Carriable { get; private set; }
+            public ICarriableItem Carriable { get; init; }
+            public Label SlotLabel;
             private readonly Label _ammoLabel;
-            private Label _slotLabel;
-            private Label _carriableLabel;
 
-            public InventorySlot(Panel parent, ICarriableItem carriable)
+            public InventorySlot(Panel parent, ICarriableItem carriable) : base(parent)
             {
                 Parent = parent;
                 Carriable = carriable;
 
-                _slotLabel = Add.Label(((int) carriable.SlotType).ToString(), "slotlabel");
-                _carriableLabel = Add.Label(carriable.Name, "carriablelabel");
+                AddClass("background-color-primary");
 
-                if (carriable.SlotType != SlotType.Melee && carriable is TTTWeapon weapon)
+                SlotLabel = Add.Label(Inventory.GetSlotByCategory(carriable.Category).ToString());
+                SlotLabel.AddClass("slot-label");
+
+                _ = Add.TranslationLabel(new TranslationData(carriable.LibraryName.ToUpper()));
+
+                _ammoLabel = Add.Label();
+
+                if (Local.Pawn is TTTPlayer player)
                 {
-                    _ammoLabel = Add.Label(FormatAmmo(weapon, (Local.Pawn as TTTPlayer).Inventory as Inventory), "ammolabel");
+                    if (carriable is TTTWeapon weapon && carriable.Category != CarriableCategories.Melee)
+                    {
+                        _ammoLabel.Text = FormatAmmo(weapon, player.Inventory);
+                        _ammoLabel.AddClass("ammo-label");
+                    }
+                }
+            }
+
+            public override void Tick()
+            {
+                base.Tick();
+
+                if (Local.Pawn is TTTPlayer player)
+                {
+                    SlotLabel.Style.BackgroundColor = player.Team.Color;
                 }
             }
 

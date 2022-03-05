@@ -1,61 +1,63 @@
-using System.Collections.Generic;
-
 using Sandbox.UI;
 
 using TTTReborn.Globalization;
 
 namespace TTTReborn.UI
 {
-    public class TranslationLabel : Label
+    public class TranslationLabel : Label, ITranslatable
     {
-        public readonly static List<TranslationLabel> TranslationLabels = new();
-
-        private string _translationKey;
-
-        private object[] _translationParams;
-
-        public TranslationLabel(string translationKey = null, string classname = null, params object[] args) : base()
+        public new string Text
         {
-            SetTranslation(translationKey, args);
+            get => base.Text;
+            set
+            {
+                base.Text = value;
+            }
+        }
+
+        private TranslationData _translationData = new();
+
+        public TranslationLabel()
+        {
+            TTTLanguage.Translatables.Add(this);
+        }
+
+        public TranslationLabel(TranslationData translationData, string classname = null) : base()
+        {
+            UpdateTranslation(translationData);
             AddClass(classname);
 
-            TranslationLabels.Add(this);
+            TTTLanguage.Translatables.Add(this);
         }
 
         public override void OnDeleted()
         {
-            TranslationLabels.Remove(this);
+            TTTLanguage.Translatables.Remove(this);
+
+            base.OnDeleted();
         }
 
-        public void SetTranslation(string translationKey, params object[] args)
+        public override void SetProperty(string name, string value)
         {
-            _translationKey = translationKey;
-            _translationParams = args;
+            base.SetProperty(name, value);
 
-            if (_translationKey is null)
+            if (name == "key")
             {
+                UpdateTranslation(new TranslationData(value));
+
                 return;
             }
-
-            Text = TTTLanguage.GetActiveLanguage().GetFormatedTranslation(_translationKey, _translationParams);
         }
 
-        public void UpdateTranslation(Language language)
+        public void UpdateTranslation(TranslationData translationData)
         {
-            if (_translationKey is null)
-            {
-                return;
-            }
-
-            Text = language.GetFormatedTranslation(_translationKey, _translationParams);
+            _translationData = translationData;
+            base.Text = TTTLanguage.ActiveLanguage.GetFormattedTranslation(_translationData);
         }
 
-        public static void UpdateLanguage(Language language)
+        public void UpdateLanguage(Language language)
         {
-            foreach (TranslationLabel translationLabel in TranslationLabels)
-            {
-                translationLabel.UpdateTranslation(language);
-            }
+            base.Text = language.GetFormattedTranslation(_translationData);
         }
     }
 }
@@ -66,9 +68,9 @@ namespace Sandbox.UI.Construct
 
     public static class TranslationLabelConstructor
     {
-        public static TranslationLabel TranslationLabel(this PanelCreator self, string translationKey = null, string classname = null, params object[] args)
+        public static TranslationLabel TranslationLabel(this PanelCreator self, TranslationData translationData, string classname = null)
         {
-            TranslationLabel translationLabel = new TranslationLabel(translationKey, classname, args);
+            TranslationLabel translationLabel = new(translationData, classname);
 
             self.panel.AddChild(translationLabel);
 

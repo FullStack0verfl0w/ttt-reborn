@@ -2,11 +2,15 @@ using System.Collections.Generic;
 
 using Sandbox;
 
+using TTTReborn.Globalization;
+using TTTReborn.Items;
+using TTTReborn.UI;
+
 namespace TTTReborn.Player
 {
-    public partial class PlayerCorpse : ModelEntity
+    public partial class PlayerCorpse : ModelEntity, IEntityHint
     {
-        public TTTPlayer Player { get; set; }
+        public TTTPlayer DeadPlayer { get; set; }
         public List<Particles> Ropes = new();
         public List<PhysicsJoint> RopeSprings = new();
         public string KillerWeapon { get; set; }
@@ -24,14 +28,14 @@ namespace TTTReborn.Player
 
             SetInteractsAs(CollisionLayer.Debris);
             SetInteractsWith(CollisionLayer.WORLD_GEOMETRY);
-            SetInteractsExclude(CollisionLayer.Player | CollisionLayer.Debris);
+            SetInteractsExclude(CollisionLayer.Player);
 
             KilledTime = Time.Now;
         }
 
         public void CopyFrom(TTTPlayer player)
         {
-            Player = player;
+            DeadPlayer = player;
 
             SetModel(player.GetModelName());
             TakeDecalsFrom(player);
@@ -39,8 +43,15 @@ namespace TTTReborn.Player
             this.CopyBonesFrom(player);
             this.SetRagdollVelocityFrom(player);
 
+            List<C4Entity> attachedC4s = new();
+
             foreach (Entity child in player.Children)
             {
+                if (child is C4Entity c4 && c4.AttachedBone > -1)
+                {
+                    attachedC4s.Add(c4);
+                }
+
                 if (child is ModelEntity e)
                 {
                     string model = e.GetModelName();
@@ -50,10 +61,15 @@ namespace TTTReborn.Player
                         continue;
                     }
 
-                    ModelEntity clothing = new ModelEntity();
+                    ModelEntity clothing = new();
                     clothing.SetModel(model);
                     clothing.SetParent(this, true);
                 }
+            }
+
+            foreach (C4Entity c4 in attachedC4s)
+            {
+                c4.SetParent(this, c4.AttachedBone);
             }
         }
 
@@ -118,6 +134,61 @@ namespace TTTReborn.Player
                 Distance = Distance,
                 Suicide = Suicide
             };
+        }
+
+        public float HintDistance => 80f;
+
+        public TranslationData TextOnTick => new(IsIdentified ? "CORPSE_INSPECT" : "CORPSE_IDENTIFY", new object[] { Input.GetKeyWithBinding("+iv_use").ToUpper() });
+
+        public bool CanHint(TTTPlayer client) => true;
+
+        public EntityHintPanel DisplayHint(TTTPlayer client)
+        {
+            return new Hint(TextOnTick);
+        }
+
+        public void Tick(TTTPlayer confirmingPlayer)
+        {
+            using (Prediction.Off())
+            {
+                if (IsClient && !Input.Down(InputButton.Use))
+                {
+                    if (InspectMenu.Instance != null)
+                    {
+                        InspectMenu.Instance.Enabled = false;
+                    }
+
+                    return;
+                }
+
+                if (IsServer && !IsIdentified && confirmingPlayer.LifeState == LifeState.Alive && Input.Down(InputButton.Use))
+                {
+                    IsIdentified = true;
+
+                    // TODO: Handle player disconnects.
+                    if (DeadPlayer != null && DeadPlayer.IsValid())
+                    {
+                        DeadPlayer.IsConfirmed = true;
+                        DeadPlayer.CorpseConfirmer = confirmingPlayer;
+
+                        int credits = DeadPlayer.Credits;
+
+                        if (credits > 0)
+                        {
+                            confirmingPlayer.Credits += credits;
+                            DeadPlayer.Credits = 0;
+                            DeadPlayer.CorpseCredits = credits;
+                        }
+
+                        RPCs.ClientConfirmPlayer(confirmingPlayer, this, DeadPlayer, DeadPlayer.Role.Name, DeadPlayer.Team.Name, GetConfirmationData(), KillerWeapon, Perks);
+                    }
+                }
+
+                if (Input.Down(InputButton.Use) && IsIdentified)
+                {
+                    TTTPlayer.ClientEnableInspectMenu(this);
+                }
+            }
         }
     }
 }

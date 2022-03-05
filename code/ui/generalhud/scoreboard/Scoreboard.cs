@@ -4,127 +4,168 @@ using System.Collections.Generic;
 using Sandbox;
 using Sandbox.UI;
 
+using TTTReborn.Events;
 using TTTReborn.Player;
 
 namespace TTTReborn.UI
 {
-    public partial class Scoreboard : TTTPanel
+    public partial class Scoreboard : Panel
     {
+        public enum DefaultScoreboardGroup
+        {
+            Alive,
+            Missing,
+            Dead,
+            Spectator
+        }
+
         public static Scoreboard Instance;
 
-        private readonly Dictionary<int, ScoreboardEntry> _entries = new();
-        //TODO: Event on start of PreRound =>
-        //Make all Entries trigger the Entry.UpdateForm()
-
+        private readonly Dictionary<long, ScoreboardEntry> _entries = new();
         private readonly Dictionary<string, ScoreboardGroup> _scoreboardGroups = new();
+        private readonly Dictionary<long, bool> _forcedSpecList = new();
 
-        private readonly Header _header;
+        private readonly Panel _backgroundPanel;
+        private readonly Panel _scoreboardContainer;
+        private readonly ScoreboardHeader _scoreboardHeader;
+        private readonly Panel _scoreboardContent;
+        private readonly Panel _scoreboardFooter;
 
-        private TableHeader _tableHeader;
-
-        private readonly Panel _mainContent;
-
-        private Panel _footer;
-
-        public Scoreboard()
+        public Scoreboard() : base()
         {
             Instance = this;
 
             StyleSheet.Load("/ui/generalhud/scoreboard/Scoreboard.scss");
 
-            _header = new Header(this);
-            _tableHeader = new TableHeader(this);
+            _backgroundPanel = new(this);
+            _backgroundPanel.AddClass("background-color-secondary");
+            _backgroundPanel.AddClass("opacity-medium");
+            _backgroundPanel.AddClass("fullscreen");
 
-            _mainContent = Add.Panel("mainContent");
+            _scoreboardContainer = new(this);
+            _scoreboardContainer.AddClass("rounded");
+            _scoreboardContainer.AddClass("scoreboard-container");
+
+            _scoreboardHeader = new(_scoreboardContainer);
+            _scoreboardHeader.AddClass("background-color-secondary");
+            _scoreboardHeader.AddClass("opacity-heavy");
+            _scoreboardHeader.AddClass("rounded-top");
+
+            _scoreboardContent = new(_scoreboardContainer);
+            _scoreboardContent.AddClass("background-color-primary");
+            _scoreboardContent.AddClass("scoreboard-content");
+            _scoreboardContent.AddClass("opacity-heavy");
+
+            _scoreboardFooter = new(_scoreboardContainer);
+            _scoreboardFooter.AddClass("background-color-secondary");
+            _scoreboardFooter.AddClass("scoreboard-footer");
+            _scoreboardFooter.AddClass("rounded-bottom");
+            _scoreboardFooter.AddClass("opacity-heavy");
+
+            Initialize();
+        }
+
+        [Event.Hotload]
+        private void Initialize()
+        {
+            if (Host.IsServer)
+            {
+                return;
+            }
 
             foreach (DefaultScoreboardGroup defaultScoreboardGroup in Enum.GetValues(typeof(DefaultScoreboardGroup)))
             {
                 AddScoreboardGroup(defaultScoreboardGroup.ToString());
             }
 
-            PlayerScore.OnPlayerAdded += AddPlayer;
-            PlayerScore.OnPlayerUpdated += UpdatePlayer;
-            PlayerScore.OnPlayerRemoved += (entry) =>
+            foreach (Client client in Client.All)
             {
-                RemovePlayer(entry);
-
-                UpdateScoreboardGroups();
-            };
-
-            _footer = Add.Panel("footer");
-
-            foreach (PlayerScore.Entry player in PlayerScore.All)
-            {
-                AddPlayer(player);
+                AddClient(client);
             }
 
             UpdateScoreboardGroups();
         }
 
-        [Event("tttreborn.player.spawned")]
+        [Event(TTTEvent.Player.SPAWNED)]
         private void OnPlayerSpawned(TTTPlayer player)
         {
-            UpdatePlayer(player.GetClientOwner());
+            UpdateClient(player.Client);
         }
 
-        private void AddPlayer(PlayerScore.Entry entry)
+        // unreliable currently due to S&Box issues
+        // [Event(TTTEvent.Player.CONNECTED)]
+        // public void OnPlayerConnected(Client client)
+        // {
+        //     AddClient(client);
+        //     UpdateScoreboardGroups();
+        // }
+
+        // [Event(TTTEvent.Player.DISCONNECTED)]
+        // private void OnPlayerDisconnected(long playerId, NetworkDisconnectionReason reason)
+        // {
+        //     RemoveClient(playerId);
+        //     UpdateScoreboardGroups();
+        // }
+
+        public void AddClient(Client client)
         {
-            ScoreboardGroup scoreboardGroup = GetScoreboardGroup(entry);
-            ScoreboardEntry scoreboardEntry = scoreboardGroup.AddEntry(entry);
+            if (client == null)
+            {
+                Log.Warning("Tried to add a client that isn't valid");
 
-            scoreboardGroup.GroupMembers++;
+                return;
+            }
 
-            _entries.Add(entry.Id, scoreboardEntry);
-
-            scoreboardGroup.UpdateLabel();
-            _header.UpdateServerInfo();
-        }
-
-        private void UpdatePlayer(PlayerScore.Entry entry)
-        {
-            if (!_entries.TryGetValue(entry.Id, out ScoreboardEntry panel))
+            if (_entries.TryGetValue(client.PlayerId, out ScoreboardEntry _))
             {
                 return;
             }
 
-            ScoreboardGroup scoreboardGroup = GetScoreboardGroup(entry);
+            ScoreboardGroup scoreboardGroup = GetScoreboardGroup(client);
+            ScoreboardEntry scoreboardEntry = scoreboardGroup.AddEntry(client);
+
+            scoreboardGroup.GroupMembers++;
+
+            _entries.Add(client.PlayerId, scoreboardEntry);
+
+            scoreboardGroup.UpdateLabel();
+            _scoreboardHeader.UpdateServerInfo();
+        }
+
+        public void UpdateClient(Client client)
+        {
+            if (!_entries.TryGetValue(client.PlayerId, out ScoreboardEntry panel))
+            {
+                return;
+            }
+
+            ScoreboardGroup scoreboardGroup = GetScoreboardGroup(client);
 
             if (scoreboardGroup.GroupTitle != panel.ScoreboardGroupName)
             {
                 // instead of remove and add, move the panel into the right parent
-                RemovePlayer(entry);
-                AddPlayer(entry);
+                RemoveClient(client.PlayerId);
+                AddClient(client);
             }
             else
             {
-                panel.UpdateFrom(entry);
+                panel.Update();
             }
 
             UpdateScoreboardGroups();
         }
 
-        public void UpdatePlayer(Client client)
-        {
-            foreach (PlayerScore.Entry entry in PlayerScore.All)
-            {
-                if (entry.Get<ulong>("steamid", 0) == client.SteamId)
-                {
-                    UpdatePlayer(entry);
-                }
-            }
-        }
-
         public void Update()
         {
-            foreach (PlayerScore.Entry entry in PlayerScore.All)
+            foreach (Client client in Client.All)
             {
-                UpdatePlayer(entry);
+                UpdateClient(client);
             }
         }
 
-        private void RemovePlayer(PlayerScore.Entry entry)
+        public void RemoveClient(long playerId)
         {
-            if (!_entries.TryGetValue(entry.Id, out ScoreboardEntry panel))
+            if (!_entries.TryGetValue(playerId, out ScoreboardEntry panel))
             {
                 return;
             }
@@ -139,14 +180,118 @@ namespace TTTReborn.UI
             scoreboardGroup.UpdateLabel();
 
             panel.Delete();
-            _entries.Remove(entry.Id);
+            _entries.Remove(playerId);
         }
 
         public override void Tick()
         {
             base.Tick();
 
-            SetClass("open", Input.Down(InputButton.Score));
+            if (!Input.Down(InputButton.Score))
+            {
+                SetClass("fade-in", false);
+
+                return;
+            }
+
+            bool invalidList = false;
+
+            foreach (Client client in Client.All)
+            {
+                if (!_entries.ContainsKey(client.PlayerId))
+                {
+                    invalidList = true;
+
+                    break;
+                }
+            }
+
+            if (!invalidList)
+            {
+                // Due to not having a `client.GetValue` change callback, we have to handle it differently
+                foreach (Client client in Client.All)
+                {
+                    bool newIsForcedSpectator = client.GetValue<bool>("forcedspectator");
+
+                    if (!_forcedSpecList.TryGetValue(client.PlayerId, out bool isForcedSpectator))
+                    {
+                        _forcedSpecList.Add(client.PlayerId, newIsForcedSpectator);
+                    }
+                    else if (isForcedSpectator != newIsForcedSpectator)
+                    {
+                        _forcedSpecList[client.PlayerId] = newIsForcedSpectator;
+
+                        UpdateClient(client);
+                    }
+                }
+            }
+            else
+            {
+                foreach (ScoreboardEntry scoreboardEntry in _entries.Values)
+                {
+                    scoreboardEntry.Delete(true);
+                }
+
+                _entries.Clear();
+
+                foreach (Client client in Client.All)
+                {
+                    AddClient(client);
+                }
+
+                UpdateScoreboardGroups();
+            }
+
+            SetClass("fade-in", true);
+            _scoreboardContainer.SetClass("pop-in", true);
+        }
+
+        private ScoreboardGroup AddScoreboardGroup(string groupName)
+        {
+            if (_scoreboardGroups.ContainsKey(groupName))
+            {
+                return _scoreboardGroups[groupName];
+            }
+
+            ScoreboardGroup scoreboardGroup = new(_scoreboardContent, groupName);
+            scoreboardGroup.UpdateLabel();
+
+            _scoreboardGroups.Add(groupName, scoreboardGroup);
+
+            return scoreboardGroup;
+        }
+
+        private ScoreboardGroup GetScoreboardGroup(Client client)
+        {
+            string group = DefaultScoreboardGroup.Alive.ToString();
+
+            if (client.GetValue<bool>("forcedspectator"))
+            {
+                group = DefaultScoreboardGroup.Spectator.ToString();
+            }
+            else if (client.PlayerId != 0 && client.Pawn is TTTPlayer player)
+            {
+                if (player.IsConfirmed)
+                {
+                    group = DefaultScoreboardGroup.Dead.ToString();
+                }
+                else if (player.IsMissingInAction)
+                {
+                    group = DefaultScoreboardGroup.Missing.ToString();
+                }
+            }
+
+            _scoreboardGroups.TryGetValue(group, out ScoreboardGroup scoreboardGroup);
+
+            return scoreboardGroup ?? AddScoreboardGroup(group);
+        }
+
+        private void UpdateScoreboardGroups()
+        {
+            foreach (ScoreboardGroup value in _scoreboardGroups.Values)
+            {
+                value.Style.Display = value.GroupMembers == 0 ? DisplayMode.None : DisplayMode.Flex;
+            }
         }
     }
 }

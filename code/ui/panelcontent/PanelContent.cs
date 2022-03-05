@@ -19,9 +19,11 @@ namespace TTTReborn.UI
         }
     }
 
-    public partial class PanelContent : TTTPanel
+    public partial class PanelContent : Panel
     {
         public string Title { get; private set; } = "";
+
+        public string ClassName { get; private set; } = "";
 
         public bool CanPrevious
         {
@@ -47,9 +49,9 @@ namespace TTTReborn.UI
 
         private int _historyIndex = 0;
 
-        public PanelContent(Panel parent = null) : base()
+        public PanelContent(Panel parent = null) : base(parent)
         {
-            Parent = parent ?? Parent;
+
         }
 
         public void Reset()
@@ -113,6 +115,7 @@ namespace TTTReborn.UI
             PanelContentData panelContentData = _contentHistory[_historyIndex];
 
             Title = panelContentData.Title;
+            ClassName = panelContentData.ClassName;
 
             panelContentData.Content(this);
 

@@ -2,16 +2,9 @@ using Sandbox;
 
 namespace TTTReborn.Player.Camera
 {
-    public partial class FirstPersonSpectatorCamera : Sandbox.Camera, IObservationCamera
+    public partial class FirstPersonSpectatorCamera : CameraMode, IObservationCamera
     {
         private const float SMOOTH_SPEED = 25f;
-
-        public override void Activated()
-        {
-            base.Activated();
-
-            FieldOfView = 80;
-        }
 
         public override void Deactivated()
         {
@@ -22,7 +15,7 @@ namespace TTTReborn.Player.Camera
                 return;
             }
 
-            player.CurrentPlayer.RenderAlpha = 1f;
+            player.CurrentPlayer.RenderColor = Color.White;
             player.CurrentPlayer = null;
         }
 
@@ -37,13 +30,13 @@ namespace TTTReborn.Player.Camera
             {
                 player.UpdateObservatedPlayer();
 
-                Pos = player.CurrentPlayer.EyePos;
-                Rot = player.CurrentPlayer.EyeRot;
+                Position = player.CurrentPlayer.EyePosition;
+                Rotation = player.CurrentPlayer.EyeRotation;
             }
             else
             {
-                Pos = Vector3.Lerp(Pos, player.CurrentPlayer.EyePos, SMOOTH_SPEED * Time.Delta);
-                Rot = Rotation.Slerp(Rot, player.CurrentPlayer.EyeRot, SMOOTH_SPEED * Time.Delta);
+                Position = Vector3.Lerp(Position, player.CurrentPlayer.EyePosition, SMOOTH_SPEED * Time.Delta);
+                Rotation = Rotation.Slerp(Rotation, player.CurrentPlayer.EyeRotation, SMOOTH_SPEED * Time.Delta);
             }
         }
 
@@ -51,12 +44,12 @@ namespace TTTReborn.Player.Camera
         {
             if (oldObservatedPlayer != null)
             {
-                oldObservatedPlayer.RenderAlpha = 1f;
+                oldObservatedPlayer.RenderColor = Color.White;
             }
 
             if (newObservatedPlayer != null)
             {
-                newObservatedPlayer.RenderAlpha = 0f;
+                newObservatedPlayer.RenderColor = Color.Transparent;
             }
         }
     }

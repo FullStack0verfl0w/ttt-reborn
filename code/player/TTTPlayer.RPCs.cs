@@ -1,8 +1,7 @@
 using Sandbox;
 
-using TTTReborn.Globals;
+using TTTReborn.Events;
 using TTTReborn.Items;
-using TTTReborn.UI;
 
 namespace TTTReborn.Player
 {
@@ -17,45 +16,45 @@ namespace TTTReborn.Player
         [ClientRpc]
         public void ClientSetAmmo(string ammoType, int amount)
         {
-            (Inventory as Inventory).Ammo.Set(ammoType, amount);
+            Inventory.Ammo.Set(ammoType, amount);
         }
 
         [ClientRpc]
         public void ClientClearAmmo()
         {
-            (Inventory as Inventory).Ammo.Clear();
+            Inventory.Ammo.Clear();
         }
 
         [ClientRpc]
         public void ClientAddPerk(string perkName)
         {
-            TTTPerk perk = Utils.GetObjectByType<TTTPerk>(Utils.GetTypeByName<TTTPerk>(perkName));
+            TTTPerk perk = Utils.GetObjectByType<TTTPerk>(Utils.GetTypeByLibraryName<TTTPerk>(perkName));
 
             if (perk == null)
             {
                 return;
             }
 
-            (Inventory as Inventory).TryAdd(perk);
+            Inventory.TryAdd(perk, deleteIfFails: true, makeActive: false);
         }
 
         [ClientRpc]
         public void ClientRemovePerk(string perkName)
         {
-            TTTPerk perk = Utils.GetObjectByType<TTTPerk>(Utils.GetTypeByName<TTTPerk>(perkName));
+            TTTPerk perk = Utils.GetObjectByType<TTTPerk>(Utils.GetTypeByLibraryName<TTTPerk>(perkName));
 
             if (perk == null)
             {
                 return;
             }
 
-            (Inventory as Inventory).Perks.Take(perk);
+            Inventory.Perks.Take(perk);
         }
 
         [ClientRpc]
         public void ClientClearPerks()
         {
-            (Inventory as Inventory).Perks.Clear();
+            Inventory.Perks.Clear();
         }
 
         [ClientRpc]
@@ -69,7 +68,14 @@ namespace TTTReborn.Player
         [ClientRpc]
         public void ClientTookDamage(Vector3 position, float damage)
         {
-            Event.Run("tttreborn.player.takedamage", this, damage);
+            Event.Run(TTTEvent.Player.TAKE_DAMAGE, this, damage);
+        }
+
+
+        [ClientRpc]
+        public void ClientInitialSpawn()
+        {
+            Event.Run(TTTEvent.Player.INITIAL_SPAWN, Client);
         }
     }
 }

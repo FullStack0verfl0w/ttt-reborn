@@ -1,34 +1,26 @@
-using System;
-
 using Sandbox;
+using Sandbox.ScreenShake;
 
 using TTTReborn.Player;
 
 namespace TTTReborn.Items
 {
-    [Library("ttt_shotgun")]
+    [Library("weapon_shotgun")]
+    [Weapon(CarriableCategories.Shotgun)]
+    [Spawnable]
+    [Buyable(Price = 100)]
+    [Precached("weapons/rust_pumpshotgun/v_rust_pumpshotgun.vmdl", "weapons/rust_pumpshotgun/rust_pumpshotgun.vmdl", "particles/pistol_muzzleflash.vpcf", "particles/pistol_ejectbrass.vpcf")]
     [Hammer.EditorModel("weapons/rust_pumpshotgun/rust_pumpshotgun.vmdl")]
-    partial class Shotgun : TTTWeapon, IBuyableItem
+    public partial class Shotgun : TTTWeapon
     {
         public override string ViewModelPath => "weapons/rust_pumpshotgun/v_rust_pumpshotgun.vmdl";
-        public override SlotType SlotType => SlotType.Primary;
+        public override string ModelPath => "weapons/rust_pumpshotgun/rust_pumpshotgun.vmdl";
         public override float PrimaryRate => 1;
         public override float SecondaryRate => 1;
-        public override string AmmoType => "buckshot";
-        public override Type AmmoEntity => typeof(BuckshotAmmo);
         public override int ClipSize => 8;
         public override float ReloadTime => 0.5f;
         public override float DeployTime => 0.6f;
         public override int BaseDamage => 6; // This is per bullet, so 6 x 10 for the shotgun.
-
-        public virtual int Price => 100;
-
-        public override void Spawn()
-        {
-            base.Spawn();
-
-            SetModel("weapons/rust_pumpshotgun/rust_pumpshotgun.vmdl");
-        }
 
         public override void AttackPrimary()
         {
@@ -39,9 +31,12 @@ namespace TTTReborn.Items
                 return;
             }
 
-            (Owner as AnimEntity).SetAnimBool("b_attack", true);
+            (Owner as AnimEntity).SetAnimParameter("b_attack", true);
 
-            ShootEffects();
+            if (IsClient)
+            {
+                ShootEffects();
+            }
 
             PlaySound("rust_pumpshotgun.shoot").SetPosition(Position).SetVolume(0.8f);
 
@@ -51,7 +46,6 @@ namespace TTTReborn.Items
             }
         }
 
-        [ClientRpc]
         protected override void ShootEffects()
         {
             Host.AssertClient();
@@ -59,12 +53,15 @@ namespace TTTReborn.Items
             Particles.Create("particles/pistol_muzzleflash.vpcf", EffectEntity, "muzzle");
             Particles.Create("particles/pistol_ejectbrass.vpcf", EffectEntity, "ejection_point");
 
-            ViewModelEntity?.SetAnimBool("fire", true);
+            ViewModelEntity?.SetAnimParameter("fire", true);
             CrosshairPanel?.CreateEvent("fire");
 
             if (IsLocalPawn)
             {
-                new Sandbox.ScreenShake.Perlin(1.0f, 1.5f, 2.0f);
+                using (Prediction.Off())
+                {
+                    _ = new Perlin(1.0f, 1.5f, 2.0f);
+                }
             }
         }
 
@@ -82,7 +79,7 @@ namespace TTTReborn.Items
 
             if (Owner is TTTPlayer player)
             {
-                int ammo = (player.Inventory as Inventory).Ammo.Take(AmmoType, 1);
+                int ammo = player.Inventory.Ammo.Take(AmmoName, 1);
 
                 if (ammo == 0)
                 {
@@ -105,13 +102,13 @@ namespace TTTReborn.Items
         [ClientRpc]
         protected virtual void FinishReload()
         {
-            ViewModelEntity?.SetAnimBool("reload_finished", true);
+            ViewModelEntity?.SetAnimParameter("reload_finished", true);
         }
 
         public override void SimulateAnimator(PawnAnimator anim)
         {
-            anim.SetParam("holdtype", 3);
-            anim.SetParam("aimat_weight", 1.0f);
+            anim.SetAnimParameter("holdtype", 3);
+            anim.SetAnimParameter("aim_body_weight", 1.0f);
         }
     }
 }

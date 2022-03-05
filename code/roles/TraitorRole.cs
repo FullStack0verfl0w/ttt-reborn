@@ -1,21 +1,21 @@
 using System;
+using System.Collections.Generic;
 
 using Sandbox;
 
-using TTTReborn.Globals;
 using TTTReborn.Player;
 using TTTReborn.Teams;
 
 namespace TTTReborn.Roles
 {
-    [RoleAttribute("Traitor")]
+    [Role("traitor")]
     public class TraitorRole : TTTRole
     {
         public override Color Color => Color.FromBytes(223, 41, 53);
 
         public override int DefaultCredits => 100;
 
-        public override Type DefaultTeamType => typeof(TraitorTeam);
+        public override TTTTeam DefaultTeam { get; } = TeamFunctions.GetTeam(typeof(TraitorTeam));
 
         public TraitorRole() : base()
         {
@@ -24,12 +24,17 @@ namespace TTTReborn.Roles
 
         public override void OnSelect(TTTPlayer player)
         {
-            if (Host.IsServer && player.Team.GetType() == DefaultTeamType)
+            if (Host.IsServer && player.Team == DefaultTeam)
             {
                 foreach (TTTPlayer otherPlayer in player.Team.Members)
                 {
-                    RPCs.ClientSetRole(To.Single(otherPlayer), player, player.Role.Name);
-                    RPCs.ClientSetRole(To.Single(player), otherPlayer, otherPlayer.Role.Name);
+                    if (otherPlayer == player)
+                    {
+                        continue;
+                    }
+
+                    player.SendClientRole(To.Single(otherPlayer));
+                    otherPlayer.SendClientRole(To.Single(player));
                 }
 
                 foreach (TTTPlayer otherPlayer in Utils.GetPlayers())
@@ -44,6 +49,20 @@ namespace TTTReborn.Roles
             base.OnSelect(player);
         }
 
-        public override bool CanBuy() => true;
+        // serverside function
+        public override void CreateDefaultShop()
+        {
+            Shop.AddAllItems();
+
+            base.CreateDefaultShop();
+        }
+
+        // serverside function
+        public override void UpdateDefaultShop(List<Type> newItemsList)
+        {
+            Shop.AddNewItems(newItemsList);
+
+            base.UpdateDefaultShop(newItemsList);
+        }
     }
 }

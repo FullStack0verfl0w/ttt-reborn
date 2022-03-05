@@ -5,7 +5,7 @@ using Sandbox;
 
 namespace TTTReborn.Items
 {
-    [Library("ttt_countdownperk")]
+    [Hammer.Skip]
     public abstract class TTTCountdownPerk : TTTPerk
     {
         public abstract float Countdown { get; }
@@ -43,7 +43,7 @@ namespace TTTReborn.Items
                         return;
                     }
 
-                    Log.Error($"{e.Message}: {e.StackTrace}");
+                    Log.Error($"[TASK] {e.Message}: {e.StackTrace}");
                 }
             }
         }

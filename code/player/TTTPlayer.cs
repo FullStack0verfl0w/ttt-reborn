@@ -1,6 +1,8 @@
+using System.Linq;
+
 using Sandbox;
 
-using TTTReborn.Globals;
+using TTTReborn.Events;
 using TTTReborn.Items;
 using TTTReborn.Player.Camera;
 using TTTReborn.Roles;
@@ -11,12 +13,6 @@ namespace TTTReborn.Player
     {
         private static int CarriableDropVelocity { get; set; } = 300;
 
-        [Net, Predicted]
-        public float Stamina { get; set; } = 100f;
-
-        [Net]
-        public float MaxStamina { get; set; } = 100f;
-
         [Net, Local]
         public int Credits { get; set; } = 0;
 
@@ -25,30 +21,27 @@ namespace TTTReborn.Player
 
         public bool IsInitialSpawning { get; set; } = false;
 
-        private DamageInfo _lastDamageInfo;
+        public new Inventory Inventory
+        {
+            get => (Inventory) base.Inventory;
+            private init => base.Inventory = value;
+        }
 
-        private TimeSince _timeSinceDropped = 0;
+        public new DefaultWalkController Controller
+        {
+            get => (DefaultWalkController) base.Controller;
+            private set => base.Controller = value;
+        }
+
+        private DamageInfo _lastDamageInfo;
 
         public TTTPlayer()
         {
             Inventory = new Inventory(this);
         }
 
-        public void MakeSpectator(bool useRagdollCamera = true)
-        {
-            EnableAllCollisions = false;
-            EnableDrawing = false;
-            Controller = null;
-            Camera = useRagdollCamera ? new RagdollSpectateCamera() : new FreeSpectateCamera();
-
-            LifeState = LifeState.Dead;
-            Health = 0f;
-
-            ShowFlashlight(false, false);
-        }
-
         // Important: Server-side only
-        public void InitialRespawn()
+        public void InitialSpawn()
         {
             bool isPostRound = Gamemode.Game.Instance.Round is Rounds.PostRound;
 
@@ -64,12 +57,16 @@ namespace TTTReborn.Player
                 {
                     if (isPostRound || player.IsConfirmed)
                     {
-                        RPCs.ClientSetRole(To.Single(this), player, player.Role.Name);
+                        player.SendClientRole(To.Single(this));
                     }
                 }
-            }
 
-            GetClientOwner().SetScore("forcedspectator", IsForcedSpectator);
+                Client.SetValue("forcedspectator", IsForcedSpectator);
+
+                Event.Run(TTTEvent.Player.INITIAL_SPAWN, Client);
+
+                ClientInitialSpawn();
+            }
 
             IsInitialSpawning = false;
             IsForcedSpectator = false;
@@ -85,10 +82,10 @@ namespace TTTReborn.Player
             Animator = new StandardPlayerAnimator();
 
             EnableHideInFirstPerson = true;
-            EnableShadowInFirstPerson = true;
+            EnableShadowInFirstPerson = false;
+            EnableDrawing = true;
 
             Credits = 0;
-            Stamina = MaxStamina;
 
             SetRole(new NoneRole());
 
@@ -96,8 +93,10 @@ namespace TTTReborn.Player
 
             using (Prediction.Off())
             {
+                Event.Run(TTTEvent.Player.SPAWNED, this);
+
                 RPCs.ClientOnPlayerSpawned(this);
-                RPCs.ClientSetRole(To.Single(this), this, Role.Name);
+                SendClientRole();
             }
 
             base.Respawn();
@@ -105,7 +104,7 @@ namespace TTTReborn.Player
             if (!IsForcedSpectator)
             {
                 Controller = new DefaultWalkController();
-                Camera = new FirstPersonCamera();
+                CameraMode = new FirstPersonCamera();
 
                 EnableAllCollisions = true;
                 EnableDrawing = true;
@@ -128,7 +127,7 @@ namespace TTTReborn.Player
                     IsConfirmed = false;
                     CorpseConfirmer = null;
 
-                    GetClientOwner().SetScore("forcedspectator", false);
+                    Client.SetValue("forcedspectator", false);
 
                     break;
             }
@@ -140,7 +139,7 @@ namespace TTTReborn.Player
 
             BecomePlayerCorpseOnServer(_lastDamageInfo.Force, GetHitboxBone(_lastDamageInfo.HitboxIndex));
 
-            Inventory.DropActive();
+            Inventory.DropAll();
             Inventory.DeleteContents();
 
             ShowFlashlight(false, false);
@@ -170,8 +169,12 @@ namespace TTTReborn.Player
             {
                 TickPlayerVoiceChat();
             }
+            else
+            {
+                TickAFKSystem();
+            }
 
-            TickAttemptInspectPlayerCorpse();
+            TickEntityHints();
 
             if (LifeState != LifeState.Alive)
             {
@@ -188,10 +191,13 @@ namespace TTTReborn.Player
 
             SimulateActiveChild(client, ActiveChild);
 
+            TickC4Simulate();
             TickItemSimulate();
             TickPlayerUse();
             TickPlayerDropCarriable();
             TickPlayerFlashlight();
+            TickPlayerShop();
+            TickLogicButtonActivate();
 
             PawnController controller = GetActiveController();
             controller?.Simulate(client, this, GetActiveAnimator());
@@ -204,17 +210,20 @@ namespace TTTReborn.Player
 
         public override void StartTouch(Entity other)
         {
-            if (_timeSinceDropped < 1)
+            if (IsClient)
             {
                 return;
             }
 
-            base.StartTouch(other);
+            if (other is PickupTrigger)
+            {
+                StartTouch(other.Parent);
+            }
         }
 
         private void TickPlayerDropCarriable()
         {
-            if (Input.Pressed(InputButton.Drop) && ActiveChild != null && Inventory != null)
+            if (Input.Pressed(InputButton.Drop) && !Input.Down(InputButton.Run) && ActiveChild != null && Inventory != null)
             {
                 Entity droppedEntity = Inventory.DropActive();
 
@@ -222,10 +231,8 @@ namespace TTTReborn.Player
                 {
                     if (droppedEntity.PhysicsGroup != null)
                     {
-                        droppedEntity.PhysicsGroup.Velocity = Velocity + (EyeRot.Forward + EyeRot.Up) * CarriableDropVelocity;
+                        droppedEntity.PhysicsGroup.Velocity = Velocity + (EyeRotation.Forward + EyeRotation.Up) * CarriableDropVelocity;
                     }
-
-                    _timeSinceDropped = 0;
                 }
             }
         }
@@ -239,31 +246,37 @@ namespace TTTReborn.Player
 
             using (Prediction.Off())
             {
-                Camera = Camera switch
+                CameraMode = CameraMode switch
                 {
-                    SpectateRagdollCamera => new FreeSpectateCamera(),
+                    RagdollSpectateCamera => new FreeSpectateCamera(),
                     FreeSpectateCamera => new ThirdPersonSpectateCamera(),
                     ThirdPersonSpectateCamera => new FirstPersonSpectatorCamera(),
                     FirstPersonSpectatorCamera => new FreeSpectateCamera(),
-                    _ => Camera
+                    _ => CameraMode
                 };
             }
         }
 
         private void TickItemSimulate()
         {
-            Client client = GetClientOwner();
-
-            if (client == null)
+            if (Client == null)
             {
                 return;
             }
 
-            PerksInventory perks = (Inventory as Inventory).Perks;
+            PerksInventory perks = Inventory.Perks;
 
             for (int i = 0; i < perks.Count(); i++)
             {
-                perks.Get(i).Simulate(client);
+                perks.Get(i).Simulate(Client);
+            }
+        }
+
+        private void TickC4Simulate()
+        {
+            foreach (C4Entity c4 in All.Where(x => x is C4Entity))
+            {
+                c4.Simulate(Client);
             }
         }
 

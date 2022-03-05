@@ -3,12 +3,22 @@ using System.Numerics;
 using Sandbox;
 using Sandbox.UI;
 
-// TODO use M4x4 transform
-
 namespace TTTReborn.UI
 {
     public partial class Drag : DragDrop
     {
+        public bool IsLocked
+        {
+            get => _isLocked;
+            set
+            {
+                _isLocked = value;
+
+                SetClass("locked", _isLocked);
+            }
+        }
+        private bool _isLocked = false;
+
         public bool IsDragging
         {
             get => _isDragging;
@@ -43,7 +53,6 @@ namespace TTTReborn.UI
                 _isFreeDraggable = value;
 
                 DragBasePanel.Style.Position = PositionMode.Absolute;
-                DragBasePanel.Style.Dirty();
             }
         }
         private bool _isFreeDraggable = false;
@@ -66,14 +75,16 @@ namespace TTTReborn.UI
 
         public Drag(Panel parent = null) : base(parent)
         {
-            Parent = parent ?? Parent;
-
             StyleSheet.Load("/ui/components/dragdrop/Drag.scss");
+
+            AddClass("drag");
+
+            IsLocked = false;
         }
 
         protected override void OnMouseDown(MousePanelEvent e)
         {
-            if (!IsVisible)
+            if (!IsVisible || IsLocked)
             {
                 return;
             }
@@ -118,10 +129,11 @@ namespace TTTReborn.UI
                 return;
             }
 
-            Vector2 position = new Vector2(
-                (Mouse.Position.x - _draggingMouseStartPosition.x) + _draggingStartPosition.x,
-                (Mouse.Position.y - _draggingMouseStartPosition.y) + _draggingStartPosition.y
-            );
+            Vector2 position = new()
+            {
+                x = Mouse.Position.x - _draggingMouseStartPosition.x + _draggingStartPosition.x,
+                y = Mouse.Position.y - _draggingMouseStartPosition.y + _draggingStartPosition.y
+            };
 
             float screenWidth = Screen.Width;
             float screenHeight = Screen.Height;
@@ -138,8 +150,8 @@ namespace TTTReborn.UI
             {
                 Matrix4x4 matrix4X4 = matrix.Value.Numerics;
 
-                position.x = position.x - matrix4X4.M41;
-                position.y = position.y - matrix4X4.M42;
+                position.x -= matrix4X4.M41;
+                position.y -= matrix4X4.M42;
             }
 
             if (IsFreeDraggable)
@@ -188,10 +200,10 @@ namespace TTTReborn.UI
 
         public virtual void OnDragPanel(float left, float top)
         {
-            DragBasePanel.Style.Left = Length.Pixels(left);
-            DragBasePanel.Style.Top = Length.Pixels(top);
+            float scale = DragBasePanel.ScaleToScreen;
 
-            DragBasePanel.Style.Dirty();
+            DragBasePanel.Style.Left = Length.Pixels(left / scale);
+            DragBasePanel.Style.Top = Length.Pixels(top / scale);
         }
 
         public virtual void OnDragPanelFinished()
@@ -203,14 +215,12 @@ namespace TTTReborn.UI
         {
             if (targetDrop != null)
             {
-                targetDrop.AddChild(this, index ?? targetDrop.ChildCount - 1);
+                targetDrop.AddChild(this);
 
                 if (!IsFreeDraggable)
                 {
                     DragBasePanel.Style.Left = null;
                     DragBasePanel.Style.Top = null;
-
-                    DragBasePanel.Style.Dirty();
                 }
             }
         }
@@ -219,11 +229,9 @@ namespace TTTReborn.UI
         {
             DragBasePanel.Style.Left = _oldPositionLeft;
             DragBasePanel.Style.Top = _oldPositionTop;
-
-            DragBasePanel.Style.Dirty();
         }
 
-        private Drop GetDropPanel()
+        private static Drop GetDropPanel()
         {
             foreach (Drop drop in Drop.List)
             {

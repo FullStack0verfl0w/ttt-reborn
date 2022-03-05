@@ -2,26 +2,40 @@ using Sandbox;
 using Sandbox.UI;
 using Sandbox.UI.Construct;
 
+using TTTReborn.Items;
 using TTTReborn.Player;
-using TTTReborn.UI;
 
 namespace TTTReborn.UI
 {
-    public class RadarPoint : TTTPanel
+    public class RadarPoint : Panel
     {
-        public Vector3 Position;
+        private readonly Vector3 _position;
+        private readonly Label _distanceLabel;
+        private const int BLUR_RADIUS = 10;
 
-        private Label DistanceLabel;
-
-        public RadarPoint(Vector3 vector3)
+        public RadarPoint(Radar.RadarPointData data)
         {
-            Position = vector3;
+            _position = data.Position;
 
             StyleSheet.Load("/items/perks/radar/RadarPoint.scss");
 
-            Hud.Current.RootPanel.AddChild(this);
+            RadarDisplay.Instance.AddChild(this);
 
-            DistanceLabel = Add.Label($"{(Local.Pawn as TTTPlayer)?.Position.Distance(Position):n0}", "distance");
+            AddClass("circular");
+
+            _distanceLabel = Add.Label();
+            _distanceLabel.AddClass("distance-label");
+            _distanceLabel.AddClass("text-shadow");
+
+            Style.BackgroundColor = data.Color;
+            Style.BoxShadow = new ShadowList()
+            {
+                new Shadow
+                {
+                    Blur = BLUR_RADIUS,
+                    Color = data.Color
+                }
+            };
         }
 
         public override void Tick()
@@ -33,17 +47,32 @@ namespace TTTReborn.UI
                 return;
             }
 
-            DistanceLabel.Text = $"{player.Position.Distance(Position):n0}";
+            _distanceLabel.Text = $"{Globals.Utils.SourceUnitsToMeters(player.Position.Distance(_position)):n0}m";
 
-            Vector3 screenPos = Position.ToScreen();
-            IsShowing = screenPos.z > 0f;
+            Vector3 screenPos = _position.ToScreen();
+            this.Enabled(screenPos.z > 0f);
 
-            if (IsShowing)
+            if (!this.IsEnabled())
             {
-                Style.Left = Length.Fraction(screenPos.x);
-                Style.Top = Length.Fraction(screenPos.y);
-                Style.Dirty();
+                return;
             }
+
+            Style.Left = Length.Fraction(screenPos.x);
+            Style.Top = Length.Fraction(screenPos.y);
+        }
+    }
+
+    public class RadarDisplay : Panel
+    {
+        public static RadarDisplay Instance { get; set; }
+
+        public RadarDisplay() : base()
+        {
+            Instance = this;
+
+            AddClass("fullscreen");
+
+            Style.ZIndex = -1;
         }
     }
 }

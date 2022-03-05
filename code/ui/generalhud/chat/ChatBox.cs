@@ -2,16 +2,15 @@ using System.Collections.Generic;
 
 using Sandbox;
 using Sandbox.UI;
-using Sandbox.UI.Construct;
 
-using TTTReborn.Globals;
 using TTTReborn.Player;
 using TTTReborn.Teams;
 
 namespace TTTReborn.UI
 {
-    public partial class ChatBox : TTTPanel
+    public partial class ChatBox : Panel
     {
+        public enum Channel { Info, Player, Spectator, Team };
         public static ChatBox Instance { get; private set; }
 
         public readonly List<ChatEntry> Messages = new();
@@ -25,66 +24,94 @@ namespace TTTReborn.UI
         private TimeSince _lastChatFocus = 0f;
 
         private readonly Panel _canvas;
-        private readonly TextEntry _input;
+        private readonly Panel _inputPanel;
+        private readonly Panel _inputTeamIndicator;
+        private readonly ChatBoxTextEntry _inputField;
 
-        public ChatBox()
+        public ChatBox() : base()
         {
             Instance = this;
 
             StyleSheet.Load("/ui/generalhud/chat/ChatBox.scss");
 
-            _canvas = Add.Panel("chat_canvas");
+            _canvas = new Panel(this);
+            _canvas.AddClass("chat-canvas");
+            _canvas.AddClass("rounded");
             _canvas.PreferScrollToBottom = true;
 
-            _input = Add.TextEntry("");
-            _input.AddEventListener("onsubmit", Submit);
-            _input.AddEventListener("onblur", Close);
-            _input.AcceptsFocus = true;
-            _input.AllowEmojiReplace = true;
+            _inputPanel = new Panel(this);
+            _inputPanel.AddClass("input-panel");
+            _inputPanel.AddClass("background-color-primary");
+            _inputPanel.AddClass("opacity-0");
+            _inputPanel.AddClass("rounded");
+
+            _inputTeamIndicator = new Panel(_inputPanel);
+            _inputTeamIndicator.AddClass("input-team-indicator");
+            _inputTeamIndicator.AddClass("circular");
+
+            _inputField = new(_inputPanel);
+            _inputField.CaretColor = Color.White;
+            _inputField.AcceptsFocus = true;
+            _inputField.AllowEmojiReplace = true;
+            _inputField.Text = "";
+            _inputField.AddClass("input-field");
+            _inputField.AddEventListener("onsubmit", Submit);
+            _inputField.AddEventListener("onblur", Close);
 
             Sandbox.Hooks.Chat.OnOpenChat += Open;
+        }
+
+        public void OnTab()
+        {
+            if (Local.Pawn is not TTTPlayer player || player.LifeState != LifeState.Alive)
+            {
+                return;
+            }
+
+            if (CanUseTeamChat(player))
+            {
+                IsTeamChatting = !IsTeamChatting;
+            }
         }
 
         public override void Tick()
         {
             base.Tick();
 
-            SetClass("dead", Local.Pawn.LifeState == LifeState.Dead);
+            bool isAlive = Local.Pawn != null && Local.Pawn.LifeState == LifeState.Alive;
+
+            if (isAlive && Local.Pawn is TTTPlayer player && IsTeamChatting)
+            {
+                _inputTeamIndicator.Style.BackgroundColor = player.Team.Color;
+                _inputPanel.Style.BorderColor = player.Team.Color;
+            }
+            else
+            {
+                _inputTeamIndicator.Style.BackgroundColor = null;
+                _inputPanel.Style.BorderColor = null;
+            }
+
+            _inputTeamIndicator.SetClass("background-color-alive", isAlive);
+            _inputTeamIndicator.SetClass("background-color-spectator", !isAlive);
+            _inputPanel.SetClass("border-color-alive", isAlive);
+            _inputPanel.SetClass("border-color-spectator", !isAlive);
 
             if (IsOpened)
             {
                 _lastChatFocus = 0f;
             }
 
-            _canvas.SetClass("hide", _lastChatFocus > MAX_DISPLAY_TIME);
-
+            _canvas.SetClass("fadeOut", _lastChatFocus > MAX_DISPLAY_TIME);
         }
 
         private void Open()
         {
             IsOpened = true;
 
-            SetClass("open", true);
+            _inputPanel.SetClass("opacity-medium", true);
+            _inputPanel.SetClass("open", true);
 
-            if (IsTeamChatting && Local.Pawn is TTTPlayer player)
-            {
-                _input.Style.BorderBottomColor = player.Team.Color;
-            }
-            else
-            {
-                _input.Style.BorderBottomColor = null;
-            }
-
-            _input.Style.Dirty();
-
-            _input.Focus();
-        }
-
-        private void OpenTeamChat()
-        {
-            IsTeamChatting = true;
-
-            Open();
+            _inputField.Focus();
         }
 
         private void Close()
@@ -92,81 +119,103 @@ namespace TTTReborn.UI
             IsTeamChatting = false;
             IsOpened = false;
 
-            SetClass("open", false);
+            _inputPanel.SetClass("opacity-medium", false);
+            _inputPanel.SetClass("open", false);
 
-            _input.Blur();
+            _inputField.Text = "";
+            _inputField.Blur();
         }
 
         private void Submit()
         {
             bool wasTeamChatting = IsTeamChatting;
 
+            string msg = _inputField.Text.Trim();
+
+            if (!string.IsNullOrWhiteSpace(msg) && Local.Pawn is TTTPlayer)
+            {
+                if (wasTeamChatting)
+                {
+                    SayTeam(msg);
+                }
+                else
+                {
+                    Say(msg);
+                }
+            }
+
             Close();
-
-            if (Local.Pawn is not TTTPlayer player)
-            {
-                return;
-            }
-
-            string msg = _input.Text.Trim();
-
-            _input.Text = "";
-
-            if (string.IsNullOrWhiteSpace(msg))
-            {
-                return;
-            }
-
-            if (wasTeamChatting)
-            {
-                SayTeam(msg);
-            }
-            else
-            {
-                Say(msg);
-            }
         }
 
-        public void AddEntry(string name, string message, string avatar, LifeState lifeState, string team = null)
+        public void AddEntry(string header, string content, Channel channel, string avatar = null, string teamName = null)
         {
             _lastChatFocus = 0f;
 
+            if (channel == Channel.Team && (string.IsNullOrEmpty(teamName) || TeamFunctions.TryGetTeam(teamName) == null))
+            {
+                Log.Error("Cannot add chat entry to Team channel without a team name.");
+
+                return;
+            }
+
+            header ??= "";
+
+            #region Cleanup Old Messages
             if (Messages.Count > MAX_MESSAGES_COUNT)
             {
                 ChatEntry entry = Messages[0];
-
                 Messages.RemoveAt(0);
-
                 entry.Delete();
             }
+            #endregion
 
             ChatEntry chatEntry = _canvas.AddChild<ChatEntry>();
-            chatEntry.Name = name;
-            chatEntry.Text = message;
 
-            chatEntry.Message.Text = message;
+            chatEntry.Header.Text = header;
+            chatEntry.Content.Text = content;
+            chatEntry.Channel = channel;
 
-            chatEntry.SetClass("noname", string.IsNullOrEmpty(name));
-            chatEntry.SetClass("noavatar", string.IsNullOrEmpty(avatar));
+            chatEntry.Header.SetClass("disable", string.IsNullOrEmpty(header));
+            chatEntry.Header.SetClass("header", chatEntry.Channel != Channel.Info);
+            chatEntry.Content.SetClass("disable", string.IsNullOrEmpty(content));
+            chatEntry.Content.SetClass("header", chatEntry.Channel == Channel.Info);
+            chatEntry.Content.SetClass("text-color-info", chatEntry.Channel == Channel.Info);
 
-            bool showHead = Messages.Count == 0 || name == null || Messages[Messages.Count - 1].Name != name;
-
-            if (showHead)
+            switch (channel)
             {
-                chatEntry.NameLabel.Text = name;
-                chatEntry.NameLabel.AddClass(lifeState == LifeState.Alive ? "alive" : "dead");
+                case Channel.Info:
+                    chatEntry.Header.AddClass("text-color-info");
 
+                    break;
+
+                case Channel.Player:
+                    chatEntry.Header.AddClass("text-color-alive");
+
+                    break;
+
+                case Channel.Spectator:
+                    chatEntry.Header.AddClass("text-color-spectator");
+
+                    break;
+
+                case Channel.Team:
+                    chatEntry.Header.Style.FontColor = TeamFunctions.GetTeam(teamName).Color;
+
+                    break;
+            }
+
+            bool showHeader =
+                Messages.Count == 0 ||
+                Messages[^1].Channel != chatEntry.Channel ||
+                !Messages[^1].Header.Text.Equals(chatEntry.Header.Text) ||
+                chatEntry.Channel == Channel.Info;
+
+            if (showHeader)
+            {
                 chatEntry.Avatar.SetTexture(avatar);
             }
 
-            chatEntry.SetClass("showHead", showHead);
-
-            if (!string.IsNullOrEmpty(team))
-            {
-                chatEntry.Style.BorderLeftWidth = Length.Pixels(4f);
-                chatEntry.Style.BorderLeftColor = TeamFunctions.GetTeam(team).Color;
-                chatEntry.Style.Dirty();
-            }
+            chatEntry.SetClass("show-header", showHeader);
 
             Messages.Add(chatEntry);
         }
@@ -176,9 +225,9 @@ namespace TTTReborn.UI
         }
 
         [ClientCmd("chat_add", CanBeCalledFromServer = true)]
-        public static void AddChatEntry(string name, string message, string avatar = null, LifeState lifeState = LifeState.Alive, string team = null)
+        public static void AddChatEntry(string name, string message, Channel channel, string avatar = null, string team = null)
         {
-            Instance?.AddEntry(name, message, avatar, lifeState, team);
+            Instance?.AddEntry(name, message, channel, avatar, team);
 
             // Only log clientside if we're not the listen server host
             if (!Global.IsListenServer)
@@ -188,18 +237,9 @@ namespace TTTReborn.UI
         }
 
         [ClientCmd("chat_addinfo", CanBeCalledFromServer = true)]
-        public static void AddInformation(string message, string avatar = null, LifeState lifeState = LifeState.Alive)
+        public static void AddInformation(string message, string avatar = null)
         {
-            Instance?.AddEntry(null, message, avatar, lifeState);
-        }
-
-        [ClientCmd("open_teamchat")]
-        public static void OpenTeamChatInput()
-        {
-            if (Local.Pawn is TTTPlayer player && CanUseTeamChat(player))
-            {
-                Instance?.OpenTeamChat();
-            }
+            Instance?.AddEntry(null, message, Channel.Info, avatar);
         }
 
         [ServerCmd("say")]
@@ -219,11 +259,11 @@ namespace TTTReborn.UI
 
             if (Gamemode.Game.Instance?.Round is Rounds.InProgressRound && lifeState == LifeState.Dead)
             {
-                AddChatEntry(To.Multiple(Utils.GetDeadClients()), ConsoleSystem.Caller.Name, message, $"avatar:{ConsoleSystem.Caller.SteamId}", lifeState);
+                AddChatEntry(To.Multiple(Utils.GetClients((pl) => pl.LifeState == LifeState.Dead)), ConsoleSystem.Caller.Name, message, Channel.Spectator, $"avatar:{ConsoleSystem.Caller.PlayerId}");
             }
             else
             {
-                AddChatEntry(To.Everyone, ConsoleSystem.Caller.Name, message, $"avatar:{ConsoleSystem.Caller.SteamId}", lifeState);
+                AddChatEntry(To.Everyone, ConsoleSystem.Caller.Name, message, Channel.Player, $"avatar:{ConsoleSystem.Caller.PlayerId}");
             }
         }
 
@@ -242,9 +282,9 @@ namespace TTTReborn.UI
 
             List<Client> clients = new();
 
-            player.Team.Members.ForEach(member => clients.Add(member.GetClientOwner()));
+            player.Team.Members.ForEach(member => clients.Add(member.Client));
 
-            AddChatEntry(To.Multiple(clients), ConsoleSystem.Caller.Name, message, $"avatar:{ConsoleSystem.Caller.SteamId}", player.LifeState, player.Team.Name);
+            AddChatEntry(To.Multiple(clients), ConsoleSystem.Caller.Name, message, Channel.Team, $"avatar:{ConsoleSystem.Caller.PlayerId}", player.Team.Name);
         }
     }
 }

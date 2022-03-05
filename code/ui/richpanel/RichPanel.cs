@@ -1,12 +1,12 @@
+using Sandbox.UI;
+
 namespace TTTReborn.UI
 {
-    public partial class RichPanel : TTTPanel
+    public partial class RichPanel : Panel
     {
-        public RichPanel() : base()
+        public RichPanel(Panel parent = null) : base(parent)
         {
             StyleSheet.Load("/ui/richpanel/RichPanel.scss");
-
-            //AcceptsFocus = true;
         }
     }
 }

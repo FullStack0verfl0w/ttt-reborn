@@ -3,27 +3,32 @@ using System;
 using Sandbox.UI;
 using Sandbox.UI.Construct;
 
+using TTTReborn.Globalization;
+
 namespace TTTReborn.UI
 {
-    public partial class PanelHeader : TTTPanel
+    public partial class PanelHeader : Panel
     {
         public Action<PanelHeader> OnClose { get; set; }
 
-        private Label _title;
+        private TranslationLabel _title;
 
-        private Button _closeButton;
-
-        public PanelHeader(Panel parent = null) : base()
+        public PanelHeader(Panel parent = null) : base(parent)
         {
-            Parent = parent ?? Parent;
-
             StyleSheet.Load("/ui/panelheader/PanelHeader.scss");
 
-            _title = Add.Label("", "title");
+            Reload();
+        }
+
+        public void Reload()
+        {
+            DeleteChildren(true);
+
+            _title = Add.TranslationLabel(new TranslationData(), "title");
 
             OnCreateHeader();
 
-            _closeButton = Add.Button("╳", "closeButton", () =>
+            Add.ButtonWithIcon(null, "close", "closeButton", () =>
             {
                 OnClose?.Invoke(this);
             });
@@ -32,6 +37,11 @@ namespace TTTReborn.UI
         public void SetTitle(string text)
         {
             _title.Text = text;
+        }
+
+        public void SetTranslationTitle(TranslationData translationdata)
+        {
+            _title.UpdateTranslation(translationdata);
         }
 
         public virtual void OnCreateHeader()

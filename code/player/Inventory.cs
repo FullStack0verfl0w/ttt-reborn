@@ -4,7 +4,6 @@ using System.Linq;
 
 using Sandbox;
 
-using TTTReborn.Globals;
 using TTTReborn.Items;
 
 namespace TTTReborn.Player
@@ -13,12 +12,29 @@ namespace TTTReborn.Player
     {
         public readonly PerksInventory Perks;
         public readonly AmmoInventory Ammo;
-        public readonly int[] SlotCapacity = new int[] { 1, 1, 1, 3, 3 };
+        public readonly int[] SlotCapacity = new int[] { 1, 1, 1, 3, 3, 1 };
+
+        private const int DROPPOSITIONOFFSET = 50;
+        private const int DROPVELOCITY = 500;
 
         public Inventory(TTTPlayer player) : base(player)
         {
-            Ammo = new AmmoInventory(this);
-            Perks = new PerksInventory(this);
+            Ammo = new(player);
+            Perks = new(player);
+        }
+
+        public static int GetSlotByCategory(CarriableCategories category)
+        {
+            return category switch
+            {
+                CarriableCategories.Melee => 1,
+                CarriableCategories.Pistol => 2,
+                CarriableCategories.SMG or CarriableCategories.Shotgun or CarriableCategories.Sniper => 3,
+                CarriableCategories.OffensiveEquipment => 4,
+                CarriableCategories.UtilityEquipment => 5,
+                CarriableCategories.Grenade => 6,
+                _ => 7,
+            };
         }
 
         public override void DeleteContents()
@@ -31,7 +47,7 @@ namespace TTTReborn.Player
                 }
             }
 
-            RPCs.ClientClearInventory(To.Multiple(Utils.GetClientsSpectatingPlayer(Owner as TTTPlayer)));
+            RPCs.ClientClearInventory(To.Multiple(Utils.GetClients((pl) => pl.CurrentPlayer == Owner as TTTPlayer)));
 
             Perks.Clear();
             Ammo.Clear();
@@ -45,18 +61,16 @@ namespace TTTReborn.Player
 
             if (entity is ICarriableItem carriable)
             {
-                if (IsCarryingType(entity.GetType()) || !HasEmptySlot(carriable.SlotType))
+                if (IsCarryingType(entity.GetType()) || !HasEmptySlot(carriable.Category))
                 {
                     return false;
                 }
 
-                RPCs.ClientOnPlayerCarriableItemPickup(To.Multiple(Utils.GetClientsSpectatingPlayer(player)), entity);
+                RPCs.ClientOnPlayerCarriableItemPickup(To.Multiple(Utils.GetClients((pl) => pl.CurrentPlayer == player)), entity);
                 Sound.FromWorld("dm.pickup_weapon", entity.Position);
             }
 
-            bool added = base.Add(entity, makeActive);
-
-            return added;
+            return base.Add(entity, makeActive);
         }
 
         public bool Add(TTTPerk perk)
@@ -79,16 +93,20 @@ namespace TTTReborn.Player
         }
 
         /// <summary>
-        /// Tries to add an `TTTReborn.Items.IItem` to the inventory. If it fails, the given item is deleted
+        /// Tries to add an `TTTReborn.Items.IItem` to the inventory.
         /// </summary>
-        /// <param name="item">`TTTReborn.Items.IItem` that will be added to the inventory or get removed on fail</param>
-        /// <param name="makeActive"></param>
+        /// <param name="item">`TTTReborn.Items.IItem` that will be added to the inventory if conditions are met.</param>
+        /// <param name="deleteIfFails">Delete `TTTReborn.Items.IItem` if it fails to add to inventory.</param>
+        /// <param name="makeActive">Make `TTTReborn.Items.IItem` the active item in the inventory.</param>
         /// <returns></returns>
-        public bool TryAdd(IItem item, bool makeActive = false)
+        public bool TryAdd(IItem item, bool deleteIfFails = false, bool makeActive = false)
         {
-            if (!Add(item, makeActive))
+            if (Owner.LifeState != LifeState.Alive || !Add(item, makeActive))
             {
-                item.Delete();
+                if (deleteIfFails)
+                {
+                    item.Delete();
+                }
 
                 return false;
             }
@@ -96,11 +114,25 @@ namespace TTTReborn.Player
             return true;
         }
 
-        public bool HasEmptySlot(SlotType slotType)
+        public bool Remove(Entity item)
         {
-            int itemsInSlot = List.Count(x => ((ICarriableItem) x).SlotType == slotType);
+            if (Contains(item))
+            {
+                RPCs.ClientOnPlayerCarriableItemDrop(To.Single(Owner), item);
+                item.Delete();
+                List.Remove(item);
 
-            return SlotCapacity[(int) slotType] - itemsInSlot > 0;
+                return true;
+            }
+
+            return false;
+        }
+
+        public bool HasEmptySlot(CarriableCategories category)
+        {
+            int itemsInSlot = List.Count(x => ((ICarriableItem) x).Category == category);
+
+            return SlotCapacity[GetSlotByCategory(category) - 1] - itemsInSlot > 0;
         }
 
         public bool IsCarryingType(Type t)
@@ -108,7 +140,7 @@ namespace TTTReborn.Player
             return List.Any(x => x.GetType() == t);
         }
 
-        public IList<string> GetAmmoTypes()
+        public IList<string> GetAmmoNames()
         {
             List<string> types = new();
 
@@ -116,9 +148,9 @@ namespace TTTReborn.Player
             {
                 if (entity is TTTWeapon wep)
                 {
-                    if (!types.Contains(wep.AmmoType))
+                    if (!types.Contains(wep.AmmoName))
                     {
-                        types.Add(wep.AmmoType);
+                        types.Add(wep.AmmoName);
                     }
                 }
             }
@@ -135,10 +167,31 @@ namespace TTTReborn.Player
 
             using (Prediction.Off())
             {
-                RPCs.ClientOnPlayerCarriableItemDrop(To.Multiple(Utils.GetClientsSpectatingPlayer(Owner as TTTPlayer)), entity);
+                RPCs.ClientOnPlayerCarriableItemDrop(To.Multiple(Utils.GetClients((pl) => pl.CurrentPlayer == Owner as TTTPlayer)), entity);
             }
 
             return base.Drop(entity);
+        }
+
+        public void DropAll()
+        {
+            List<Entity> cache = new(List);
+
+            foreach (Entity entity in cache)
+            {
+                Drop(entity);
+            }
+        }
+
+        public bool DropEntity(Entity self, Type entity)
+        {
+            Entity droppedEntity = Utils.GetObjectByType<Entity>(entity);
+            droppedEntity.Position = Owner.EyePosition + Owner.EyeRotation.Forward * DROPPOSITIONOFFSET;
+            droppedEntity.Rotation = Owner.EyeRotation;
+            droppedEntity.Velocity = Owner.EyeRotation.Forward * DROPVELOCITY;
+            droppedEntity.Tags.Add(IItem.ITEM_TAG);
+
+            return Remove(self);
         }
     }
 }

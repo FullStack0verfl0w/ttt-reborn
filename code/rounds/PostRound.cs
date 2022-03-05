@@ -1,16 +1,17 @@
-using System.Collections.Generic;
-
 using Sandbox;
 
-using TTTReborn.Globals;
 using TTTReborn.Player;
+using TTTReborn.Settings;
 
 namespace TTTReborn.Rounds
 {
     public class PostRound : BaseRound
     {
         public override string RoundName => "Post";
-        public override int RoundDuration => Gamemode.Game.TTTPostRoundTime;
+        public override int RoundDuration
+        {
+            get => ServerSettings.Instance.Round.PostRoundTime;
+        }
 
         protected override void OnTimeUp()
         {
@@ -19,21 +20,12 @@ namespace TTTReborn.Rounds
             // TODO: Allow users to close the menu themselves using mouse cursor.
             RPCs.ClientClosePostRoundMenu();
 
-            Gamemode.Game.Instance.ChangeRound(new PreRound());
-        }
-
-        public override void OnPlayerSpawn(TTTPlayer player)
-        {
-            AddPlayer(player);
-
-            base.OnPlayerSpawn(player);
+            bool shouldChangeMap = Gamemode.Game.Instance.MapSelection.TotalRoundsPlayed >= ServerSettings.Instance.Round.TotalRounds;
+            Gamemode.Game.Instance.ChangeRound(shouldChangeMap ? new MapSelectionRound() : new PreRound());
         }
 
         public override void OnPlayerKilled(TTTPlayer player)
         {
-            Players.Remove(player);
-            Spectators.Add(player);
-
             player.MakeSpectator();
         }
 
@@ -53,7 +45,7 @@ namespace TTTReborn.Rounds
                         }
                         else
                         {
-                            RPCs.ClientSetRole(player, player.Role.Name);
+                            player.SendClientRole(To.Everyone);
                         }
                     }
                 }

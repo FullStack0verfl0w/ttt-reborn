@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 using Sandbox;
 
-using TTTReborn.Globals;
 using TTTReborn.Player;
 
 namespace TTTReborn.Teams
@@ -11,7 +11,7 @@ namespace TTTReborn.Teams
     [AttributeUsage(AttributeTargets.Class, Inherited = false)]
     public class TeamAttribute : LibraryAttribute
     {
-        public TeamAttribute(string name) : base(name)
+        public TeamAttribute(string name) : base("team_" + name)
         {
 
         }
@@ -25,21 +25,33 @@ namespace TTTReborn.Teams
 
         public readonly List<TTTPlayer> Members = new();
 
-        public static TTTTeam Instance;
-
         public static Dictionary<string, TTTTeam> Teams = new();
 
         public TTTTeam()
         {
-            Name = Utils.GetTypeName(GetType());
+            Name = Utils.GetLibraryName(GetType());
 
-            Instance = this;
             Teams[Name] = this;
+        }
+
+        public IEnumerable<Client> GetClients()
+        {
+            return Members.Select(x => x.Client);
         }
     }
 
     public static class TeamFunctions
     {
+        public static TTTTeam TryGetTeam(string teamname)
+        {
+            if (teamname == null || !TTTTeam.Teams.TryGetValue(teamname, out TTTTeam team))
+            {
+                return null;
+            }
+
+            return team;
+        }
+
         public static TTTTeam GetTeam(string teamname)
         {
             if (teamname == null)
@@ -49,13 +61,13 @@ namespace TTTReborn.Teams
 
             if (!TTTTeam.Teams.TryGetValue(teamname, out TTTTeam team))
             {
-                team = Utils.GetObjectByType<TTTTeam>(Utils.GetTypeByName<TTTTeam>(teamname));
+                team = Utils.GetObjectByType<TTTTeam>(Utils.GetTypeByLibraryName<TTTTeam>(teamname));
             }
 
             return team;
         }
 
-        public static TTTTeam GetTeamByType(Type teamType)
+        public static TTTTeam GetTeam(Type teamType)
         {
             foreach (TTTTeam team in TTTTeam.Teams.Values)
             {
@@ -65,7 +77,7 @@ namespace TTTReborn.Teams
                 }
             }
 
-            return null;
+            return Utils.GetObjectByType<TTTTeam>(teamType);
         }
     }
 }

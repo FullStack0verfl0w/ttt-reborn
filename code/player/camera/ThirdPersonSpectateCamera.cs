@@ -2,12 +2,11 @@ using Sandbox;
 
 namespace TTTReborn.Player.Camera
 {
-    public partial class ThirdPersonSpectateCamera : Sandbox.Camera, IObservationCamera
+    public partial class ThirdPersonSpectateCamera : CameraMode, IObservationCamera
     {
         private Vector3 DefaultPosition { get; set; }
 
         private const float LERP_MODE = 0;
-        private const int FIELD_OF_VIEW_OVERRIDE = 70;
         private const int CAMERA_DISTANCE = 120;
 
         private Rotation _targetRot;
@@ -18,9 +17,7 @@ namespace TTTReborn.Player.Camera
         {
             base.Activated();
 
-            Rot = CurrentView.Rotation;
-
-            FieldOfView = FIELD_OF_VIEW_OVERRIDE;
+            Rotation = CurrentView.Rotation;
         }
 
         public override void Update()
@@ -36,10 +33,10 @@ namespace TTTReborn.Player.Camera
             }
 
             _targetRot = Rotation.From(_lookAngles);
-            Rot = Rotation.Slerp(Rot, _targetRot, 10 * RealTime.Delta * (1 - LERP_MODE));
+            Rotation = Rotation.Slerp(Rotation, _targetRot, 10 * RealTime.Delta * (1 - LERP_MODE));
 
-            _targetPos = GetSpectatePoint() + Rot.Forward * -CAMERA_DISTANCE;
-            Pos = _targetPos;
+            _targetPos = GetSpectatePoint() + Rotation.Forward * -CAMERA_DISTANCE;
+            Position = _targetPos;
         }
 
         private Vector3 GetSpectatePoint()
@@ -49,12 +46,12 @@ namespace TTTReborn.Player.Camera
                 return DefaultPosition;
             }
 
-            return player.CurrentPlayer.EyePos;
+            return player.CurrentPlayer.EyePosition;
         }
 
         public override void BuildInput(InputBuilder input)
         {
-            _lookAngles += input.AnalogLook * (FIELD_OF_VIEW_OVERRIDE / 80.0f);
+            _lookAngles += input.AnalogLook;
             _lookAngles.roll = 0;
 
             base.BuildInput(input);

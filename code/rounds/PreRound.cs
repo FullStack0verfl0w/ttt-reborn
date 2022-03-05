@@ -1,21 +1,26 @@
+using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 
 using Sandbox;
 
 using TTTReborn.Items;
 using TTTReborn.Player;
+using TTTReborn.Roles;
+using TTTReborn.Settings;
 
 namespace TTTReborn.Rounds
 {
     public class PreRound : BaseRound
     {
         public override string RoundName => "Preparing";
-        public override int RoundDuration => Gamemode.Game.TTTPreRoundTime;
+        public override int RoundDuration
+        {
+            get => ServerSettings.Instance.Round.PreRoundTime;
+        }
 
         public override void OnPlayerKilled(TTTPlayer player)
         {
-            _ = StartRespawnTimer(player);
+            StartRespawnTimer(player);
 
             player.MakeSpectator();
 
@@ -26,36 +31,13 @@ namespace TTTReborn.Rounds
         {
             if (Host.IsServer)
             {
-                List<TTTAmmoRandom> randomAmmo = new();
-                List<TTTWeaponRandom> randomWeapons = new();
-
-                foreach (Entity entity in Entity.All)
-                {
-                    if (entity is BaseCarriable carr)
-                    {
-                        carr.Delete();
-                    }
-                    if (entity is TTTAmmo ammo)
-                    {
-                        ammo.Delete();
-                    }
-                    if (entity is TTTAmmoRandom rammo)
-                    {
-                        randomAmmo.Add(rammo); //Throws `Collection was Modified` if we activate here. Worth looking further into cleanup wise.
-                    }
-                    if (entity is TTTWeaponRandom rwep)
-                    {
-                        randomWeapons.Add(rwep); //See above comment.
-                    }
-                }
-
-                randomAmmo.ForEach(x => x.Activate());
-                randomWeapons.ForEach(x => x.Activate());
+                Gamemode.Game.Instance.MapHandler.Reset();
 
                 foreach (Client client in Client.All)
                 {
                     if (client.Pawn is TTTPlayer player)
                     {
+                        player.RemoveLogicButtons();
                         player.Respawn();
                     }
                 }
@@ -66,22 +48,87 @@ namespace TTTReborn.Rounds
         {
             base.OnTimeUp();
 
-            Gamemode.Game.Instance.ChangeRound(new InProgressRound());
+            List<TTTPlayer> players = new();
+            List<TTTPlayer> spectators = new();
+
+            foreach (TTTPlayer player in Utils.GetPlayers())
+            {
+                player.Client.SetValue("forcedspectator", player.IsForcedSpectator);
+
+                if (player.IsForcedSpectator)
+                {
+                    player.MakeSpectator(false);
+                    spectators.Add(player);
+                }
+                else
+                {
+                    players.Add(player);
+                }
+            }
+
+            AssignRolesAndRespawn(players);
+
+            Gamemode.Game.Instance.ChangeRound(new InProgressRound
+            {
+                Players = players,
+                Spectators = spectators
+            });
         }
 
-        private static async Task StartRespawnTimer(TTTPlayer player)
+        private static void AssignRolesAndRespawn(List<TTTPlayer> players)
         {
-            await Task.Delay(1000);
+            VisualProgramming.NodeStack.Instance.Evaluate(new List<TTTPlayer>(players));
 
-            if (player.IsValid() && Gamemode.Game.Instance.Round is PreRound)
+            foreach (TTTPlayer player in players)
             {
-                player.Respawn();
+                if (player.Role is NoneRole)
+                {
+                    player.SetRole(new InnocentRole());
+                }
+
+                using (Prediction.Off())
+                {
+                    player.SendClientRole();
+                }
+
+                if (player.LifeState == LifeState.Dead)
+                {
+                    player.Respawn();
+                }
+                else
+                {
+                    player.SetHealth(player.MaxHealth);
+                }
+            }
+        }
+
+        private static async void StartRespawnTimer(TTTPlayer player)
+        {
+            try
+            {
+                await GameTask.DelaySeconds(1);
+
+                if (player.IsValid() && Gamemode.Game.Instance.Round is PreRound)
+                {
+                    player.Respawn();
+                }
+            }
+            catch (Exception e)
+            {
+                if (e.Message.Trim() == "A task was canceled.")
+                {
+                    return;
+                }
+
+                Log.Error($"[TASK] {e.Message}: {e.StackTrace}");
             }
         }
 
         public override void OnPlayerSpawn(TTTPlayer player)
         {
-            AddPlayer(player);
+            bool handsAdded = player.Inventory.TryAdd(new Hands(), deleteIfFails: true, makeActive: false);
+
+            Log.Debug($"Attempting to add Hands to {player.Client.Name} {handsAdded}");
 
             base.OnPlayerSpawn(player);
         }
